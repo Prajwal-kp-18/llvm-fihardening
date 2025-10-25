@@ -1,0 +1,104 @@
+# Ignore build artifacts and temporary files
+build/
+*.o
+*.so
+*.a
+*.out
+*.ll
+*.bc
+*.dot
+*.png
+*.output
+*.swp
+*.swo
+*.tmp
+*.log
+
+# Ignore test results and generated data
+test_results/
+benchmark_results/
+baseline_comparison_results/
+benchmarks/
+docs/
+transform_vs_baseline_comparison/
+# Ignore CMake and Makefiles
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Ignore Docker build cache and intermediate files
+**/.docker*
+
+# Ignore Python cache and virtual environments
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+env/
+venv/
+
+# Ignore editor/IDE files
+.vscode/
+.idea/
+*.code-workspace
+
+# Ignore backup and system files
+*~
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+*.so
+*.o
+*.a
+
+# LLVM IR files
+*.ll
+*.bc
+!tests/*.ll
+
+# Test binaries
+tests/*_original
+tests/*_hardened
+!tests/*.c
+
+# Test results
+test_results/
+*.output
+
+# Generated benchmark results
+opt_benchmark/
+comparison_reports/
+llfi_experiments/
+llfi_integration/
+benchmarks/LLFI/
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Temporary files
+*.log
+*.tmp
+/tmp/
+
+# Cleanup scripts output
+CLEANUP_PLAN.md
+cleanup_codebase.sh
