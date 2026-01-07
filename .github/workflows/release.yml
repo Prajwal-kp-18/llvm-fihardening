@@ -106,15 +106,15 @@ jobs:
         cp -r docs $PACKAGE_NAME/
         
         # Create installation script
-        cat > $PACKAGE_NAME/install.sh << 'EOF'
+        cat > $PACKAGE_NAME/install.sh << EOF
 #!/bin/bash
 set -e
-PREFIX=${PREFIX:-/usr/local}
-echo "Installing LLVM FI Hardening to $PREFIX"
-sudo mkdir -p $PREFIX/lib/llvm-fihardening
-sudo cp *.so *.a $PREFIX/lib/llvm-fihardening/
+PREFIX=\${PREFIX:-/usr/local}
+echo "Installing LLVM FI Hardening to \$PREFIX"
+sudo mkdir -p \$PREFIX/lib/llvm-fihardening
+sudo cp *.so *.a \$PREFIX/lib/llvm-fihardening/
 echo "Installation complete!"
-echo "Add to your opt command: -load-pass-plugin=$PREFIX/lib/llvm-fihardening/FIHardeningTransform.so"
+echo "Add to your opt command: -load-pass-plugin=\$PREFIX/lib/llvm-fihardening/FIHardeningTransform.so"
 EOF
         chmod +x $PACKAGE_NAME/install.sh
         
