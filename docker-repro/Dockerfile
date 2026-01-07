@@ -1,6 +1,6 @@
 # Dockerfile for FIHardeningTransform Reproducibility
 # Builds plugin from source with LLVM 18
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
