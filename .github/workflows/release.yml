@@ -1,0 +1,254 @@
+name: Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-22.04
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get version
+      id: get_version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version: $VERSION"
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        git log --pretty=format:"- %s (%h)" $(git describe --tags --abbrev=0 HEAD^)..HEAD > CHANGELOG.txt
+        cat CHANGELOG.txt
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.get_version.outputs.version }}
+        release_name: LLVM FI Hardening ${{ steps.get_version.outputs.version }}
+        body_path: CHANGELOG.txt
+        draft: false
+        prerelease: false
+
+  build-release-artifacts:
+    name: Build Release (${{ matrix.os }}, LLVM ${{ matrix.llvm }})
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        llvm: [17, 18, 19]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install LLVM ${{ matrix.llvm }}
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh ${{ matrix.llvm }}
+        sudo apt-get install -y \
+          llvm-${{ matrix.llvm }}-dev \
+          clang-${{ matrix.llvm }} \
+          cmake \
+          ninja-build
+
+    - name: Build Release
+      run: |
+        cmake -B build \
+          -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DLLVM_DIR=/usr/lib/llvm-${{ matrix.llvm }}/lib/cmake/llvm \
+          -DCMAKE_C_COMPILER=clang-${{ matrix.llvm }} \
+          -DCMAKE_CXX_COMPILER=clang++-${{ matrix.llvm }}
+        cmake --build build --parallel
+        
+        # Strip symbols for smaller binaries
+        strip build/*.so || true
+
+    - name: Package artifacts
+      run: |
+        VERSION=${{ needs.create-release.outputs.version }}
+        PACKAGE_NAME="llvm-fihardening-$VERSION-${{ matrix.os }}-llvm${{ matrix.llvm }}"
+        
+        mkdir -p $PACKAGE_NAME
+        cp build/*.so build/*.a $PACKAGE_NAME/
+        cp README.md LICENSE $PACKAGE_NAME/
+        cp -r docs $PACKAGE_NAME/
+        
+        # Create installation script
+        cat > $PACKAGE_NAME/install.sh << 'EOF'
+#!/bin/bash
+set -e
+PREFIX=${PREFIX:-/usr/local}
+echo "Installing LLVM FI Hardening to $PREFIX"
+sudo mkdir -p $PREFIX/lib/llvm-fihardening
+sudo cp *.so *.a $PREFIX/lib/llvm-fihardening/
+echo "Installation complete!"
+echo "Add to your opt command: -load-pass-plugin=$PREFIX/lib/llvm-fihardening/FIHardeningTransform.so"
+EOF
+        chmod +x $PACKAGE_NAME/install.sh
+        
+        tar czf ${PACKAGE_NAME}.tar.gz $PACKAGE_NAME
+        sha256sum ${PACKAGE_NAME}.tar.gz > ${PACKAGE_NAME}.tar.gz.sha256
+
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./llvm-fihardening-${{ needs.create-release.outputs.version }}-${{ matrix.os }}-llvm${{ matrix.llvm }}.tar.gz
+        asset_name: llvm-fihardening-${{ needs.create-release.outputs.version }}-${{ matrix.os }}-llvm${{ matrix.llvm }}.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload Checksum
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./llvm-fihardening-${{ needs.create-release.outputs.version }}-${{ matrix.os }}-llvm${{ matrix.llvm }}.tar.gz.sha256
+        asset_name: llvm-fihardening-${{ needs.create-release.outputs.version }}-${{ matrix.os }}-llvm${{ matrix.llvm }}.tar.gz.sha256
+        asset_content_type: text/plain
+
+  publish-docker:
+    name: Publish Docker Image
+    needs: create-release
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}
+        tags: |
+          type=semver,pattern={{version}},value=${{ needs.create-release.outputs.version }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ needs.create-release.outputs.version }}
+          type=semver,pattern={{major}},value=${{ needs.create-release.outputs.version }}
+          type=raw,value=latest
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./docker-repro
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  publish-documentation:
+    name: Publish Documentation
+    needs: create-release
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Pages
+      uses: actions/configure-pages@v4
+
+    - name: Build documentation site
+      run: |
+        mkdir -p _site
+        cp README.md _site/index.md
+        cp -r docs _site/
+        
+        # Create simple index.html
+        cat > _site/index.html << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LLVM FI Hardening Documentation</title>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        h1 { color: #333; }
+        ul { line-height: 1.6; }
+        a { color: #0066cc; }
+    </style>
+</head>
+<body>
+    <h1>LLVM FI Hardening Pass - Documentation</h1>
+    <h2>Project Documentation</h2>
+    <ul>
+        <li><a href="index.md">README</a></li>
+        <li><a href="docs/DOCUMENTATION_INDEX.md">Documentation Index</a></li>
+        <li><a href="docs/12_STRATEGIES.md">12 Hardening Strategies</a></li>
+        <li><a href="docs/TRANSFORMATION_GUIDE.md">Transformation Guide</a></li>
+        <li><a href="docs/RUNTIME_API.md">Runtime API Reference</a></li>
+        <li><a href="docs/TESTING.md">Testing Guide</a></li>
+    </ul>
+</body>
+</html>
+EOF
+
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v3
+
+  notify:
+    name: Notify Release
+    needs: [create-release, build-release-artifacts, publish-docker]
+    runs-on: ubuntu-22.04
+    if: always()
+    
+    steps:
+    - name: Release Summary
+      run: |
+        echo "### Release ${{ needs.create-release.outputs.version }} Complete! 🚀" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Status:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Release Creation: ${{ needs.create-release.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Build Artifacts: ${{ needs.build-release-artifacts.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Docker Publish: ${{ needs.publish-docker.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Downloads:** [Release Page](https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-release.outputs.version }})" >> $GITHUB_STEP_SUMMARY
+        echo "**Docker:** \`docker pull ghcr.io/${{ github.repository }}:${{ needs.create-release.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,155 @@
+name: Docker Images
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docker-repro/**'
+      - '.github/workflows/docker.yml'
+  pull_request:
+    paths:
+      - 'docker-repro/**'
+  schedule:
+    # Rebuild weekly to get security updates
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & Test Docker Image
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./docker-repro
+        load: true
+        tags: llvm-fihardening:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Test Docker image - Build verification
+      run: |
+        docker run --rm llvm-fihardening:test bash -c "
+          set -e
+          echo '=== Verifying build artifacts ==='
+          ls -lh build/*.so build/*.a
+          file build/FIHardeningPass.so
+          file build/FIHardeningTransform.so
+          file build/libfihardening_runtime.a
+        "
+
+    - name: Test Docker image - Quick test
+      run: |
+        docker run --rm llvm-fihardening:test bash -c "
+          set -e
+          cd /workspace
+          export LLVM_VERSION=17
+          ./scripts/quick_test.sh
+        "
+
+    - name: Test Docker image - Comprehensive test
+      run: |
+        docker run --rm llvm-fihardening:test bash -c "
+          set -e
+          cd /workspace
+          export LLVM_VERSION=17
+          ./scripts/run_tests.sh
+        "
+
+    - name: Inspect image size
+      run: |
+        docker images llvm-fihardening:test
+        echo "### Docker Image Size" >> $GITHUB_STEP_SUMMARY
+        docker images llvm-fihardening:test --format "Size: {{.Size}}" >> $GITHUB_STEP_SUMMARY
+
+  security-scan:
+    name: Security Scan Docker Image
+    runs-on: ubuntu-22.04
+    needs: build-and-test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build Docker image
+      run: |
+        cd docker-repro
+        docker build -t llvm-fihardening:scan .
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'llvm-fihardening:scan'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Run Trivy for display
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'llvm-fihardening:scan'
+        format: 'table'
+
+  push-dev:
+    name: Push Development Image
+    runs-on: ubuntu-22.04
+    needs: [build-and-test, security-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}
+        tags: |
+          type=raw,value=dev
+          type=sha,prefix=dev-
+
+    - name: Build and push
+      uses: docker/build-push-action@v5
+      with:
+        context: ./docker-repro
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Summary
+      run: |
+        echo "### Docker Image Published 🐳" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
+        echo "\`docker pull ghcr.io/${{ github.repository }}:dev\`" >> $GITHUB_STEP_SUMMARY

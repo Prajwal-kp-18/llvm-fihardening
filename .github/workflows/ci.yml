@@ -1,0 +1,262 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  LLVM_VERSION: "17"
+
+jobs:
+  build-and-test:
+    name: Build & Test (${{ matrix.os }}, LLVM ${{ matrix.llvm }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        llvm: [17, 18, 19]
+        include:
+          - os: ubuntu-22.04
+            llvm: 17
+            primary: true
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Cache LLVM
+      id: cache-llvm
+      uses: actions/cache@v4
+      with:
+        path: |
+          /usr/lib/llvm-${{ matrix.llvm }}
+          /usr/include/llvm-${{ matrix.llvm }}
+        key: ${{ runner.os }}-llvm-${{ matrix.llvm }}-${{ hashFiles('**/CMakeLists.txt') }}
+
+    - name: Install LLVM and dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          wget \
+          software-properties-common \
+          gnupg \
+          cmake \
+          ninja-build \
+          build-essential \
+          git
+        
+        # Install LLVM from official repository
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh ${{ matrix.llvm }}
+        
+        # Install additional LLVM tools
+        sudo apt-get install -y \
+          llvm-${{ matrix.llvm }}-dev \
+          llvm-${{ matrix.llvm }}-tools \
+          clang-${{ matrix.llvm }} \
+          libclang-${{ matrix.llvm }}-dev
+
+    - name: Verify LLVM installation
+      run: |
+        llvm-config-${{ matrix.llvm }} --version
+        clang-${{ matrix.llvm }} --version
+        opt-${{ matrix.llvm }} --version
+
+    - name: Configure CMake
+      run: |
+        cmake -B build \
+          -G Ninja \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DLLVM_DIR=/usr/lib/llvm-${{ matrix.llvm }}/lib/cmake/llvm \
+          -DCMAKE_C_COMPILER=clang-${{ matrix.llvm }} \
+          -DCMAKE_CXX_COMPILER=clang++-${{ matrix.llvm }}
+
+    - name: Build passes
+      run: cmake --build build --parallel
+
+    - name: Verify build artifacts
+      run: |
+        echo "=== Build artifacts ==="
+        ls -lh build/*.so build/*.a || true
+        file build/FIHardeningPass.so
+        file build/FIHardeningTransform.so
+        file build/libfihardening_runtime.a
+
+    - name: Run quick tests
+      run: |
+        export LLVM_VERSION=${{ matrix.llvm }}
+        chmod +x scripts/quick_test.sh
+        ./scripts/quick_test.sh
+
+    - name: Run comprehensive tests
+      if: matrix.primary
+      run: |
+        export LLVM_VERSION=${{ matrix.llvm }}
+        chmod +x scripts/run_tests.sh
+        ./scripts/run_tests.sh
+
+    - name: Run validation tests
+      if: matrix.primary
+      run: |
+        export LLVM_VERSION=${{ matrix.llvm }}
+        chmod +x scripts/validate_functional.sh
+        ./scripts/validate_functional.sh
+
+    - name: Upload build artifacts
+      if: matrix.primary
+      uses: actions/upload-artifact@v4
+      with:
+        name: llvm-fi-hardening-${{ matrix.os }}-llvm${{ matrix.llvm }}
+        path: |
+          build/*.so
+          build/*.a
+          test_results/
+        retention-days: 7
+
+    - name: Upload test results
+      if: always() && matrix.primary
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os }}-llvm${{ matrix.llvm }}
+        path: |
+          test_results/
+          *.output
+        retention-days: 14
+
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang-format-17 cppcheck
+
+    - name: Check code formatting
+      run: |
+        find . -name "*.cpp" -o -name "*.h" | xargs clang-format-17 --dry-run --Werror
+
+    - name: Run cppcheck
+      run: |
+        cppcheck --enable=warning,style,performance \
+          --suppress=missingIncludeSystem \
+          --error-exitcode=1 \
+          *.cpp *.h || true
+
+    - name: Check documentation
+      run: |
+        # Verify all documentation files are present
+        for doc in README.md LICENSE docs/DOCUMENTATION_INDEX.md; do
+          if [ ! -f "$doc" ]; then
+            echo "Missing: $doc"
+            exit 1
+          fi
+        done
+
+  benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-and-test
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install LLVM 17
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 17
+        sudo apt-get install -y llvm-17-dev clang-17
+
+    - name: Build project
+      run: |
+        cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+          -DLLVM_DIR=/usr/lib/llvm-17/lib/cmake/llvm
+        cmake --build build --parallel
+
+    - name: Run benchmarks
+      run: |
+        export LLVM_VERSION=17
+        chmod +x scripts/benchmark.sh
+        ./scripts/benchmark.sh || true
+
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: benchmark_results/
+        retention-days: 30
+
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      run: |
+        cd docker-repro
+        docker build -t llvm-fihardening:test .
+
+    - name: Test Docker image
+      run: |
+        docker run --rm llvm-fihardening:test \
+          bash -c "cd /workspace && ls -l build/*.so build/*.a"
+
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-22.04
+    needs: [build-and-test, code-quality, docker-build]
+    if: always()
+    
+    steps:
+    - name: Check results
+      run: |
+        echo "### CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- Build & Test: ${{ needs.build-and-test.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Code Quality: ${{ needs.code-quality.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Docker Build: ${{ needs.docker-build.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY

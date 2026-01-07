@@ -128,7 +128,7 @@ struct TransformStats {
   unsigned PhiNodesVerified = 0;
   unsigned TMRApplications = 0;
   unsigned TemporariesProtected = 0;
-  unsigned LLFIHardenedFunctions = 0;
+  unsigned FullyHardenedFunctions = 0;
   
   void print(raw_ostream &OS) {
     OS << "\n========================================\n";
@@ -148,11 +148,11 @@ struct TransformStats {
     OS << "  Hardware I/O validated:     " << HardwareIOValidated << "\n";
     OS << "  Fault logs added:           " << FaultLogsAdded << "\n";
     OS << "  Timing mitigations:         " << TimingMitigationsAdded << "\n";
-    OS << "\nLLFI Coverage Enhancements:\n";
+    OS << "\nComprehensive Protection:\n";
     OS << "  Phi nodes verified:         " << PhiNodesVerified << "\n";
     OS << "  TMR applications:           " << TMRApplications << "\n";
     OS << "  Temporaries protected:      " << TemporariesProtected << "\n";
-    OS << "  LLFI-hardened functions:    " << LLFIHardenedFunctions << "\n";
+    OS << "  Fully hardened functions:   " << FullyHardenedFunctions << "\n";
     OS << "\nInstrumentation:\n";
     OS << "  Verification calls added:   " << VerificationCallsAdded << "\n";
     OS << "  Instructions duplicated:    " << InstructionsDuplicated << "\n";
@@ -864,9 +864,9 @@ public:
     for (LoadInst *LI : VolatileLoadsToValidate)
       hardenVolatileLoad(LI, F);
     
-    // ===== NEW: Apply comprehensive LLFI protection (Phase 1) =====
+    // ===== NEW: Apply comprehensive protection (Phase 1) =====
     if (HardenLevel >= 2) {
-      applyComprehensiveLLFIProtection(F);
+      applyComprehensiveProtection(F);
     }
     
     unsigned totalTransforms = BranchesToHarden.size() + LoadsToHarden.size() + 
@@ -1107,11 +1107,11 @@ public:
     Stats.TemporariesProtected++;
   }
   
-  // NEW METHOD 4: Comprehensive Function Coverage (applies all LLFI protections)
-  void applyComprehensiveLLFIProtection(Function &F) {
+  // NEW METHOD 4: Comprehensive Function Coverage (applies all FI protections)
+  void applyComprehensiveProtection(Function &F) {
     if (F.isDeclaration()) return;
     
-    errs() << "\n[LLFI] Applying comprehensive LLFI protection to '" 
+    errs() << "\n[FI-HARDEN] Applying comprehensive protection to '" 
            << F.getName() << "'\n";
     
     std::vector<PHINode*> PhiNodes;
@@ -1152,9 +1152,9 @@ public:
     }
     
     // Apply protections
-    errs() << "  [LLFI] Found " << PhiNodes.size() << " phi nodes\n";
-    errs() << "  [LLFI] Found " << CriticalArithmetic.size() << " critical arithmetic ops\n";
-    errs() << "  [LLFI] Found " << TemporaryValues.size() << " temporary values\n";
+    errs() << "  [FI-HARDEN] Found " << PhiNodes.size() << " phi nodes\n";
+    errs() << "  [FI-HARDEN] Found " << CriticalArithmetic.size() << " critical arithmetic ops\n";
+    errs() << "  [FI-HARDEN] Found " << TemporaryValues.size() << " temporary values\n";
     
     // Phase 1: Phi node verification
     for (PHINode *Phi : PhiNodes) {
@@ -1180,9 +1180,9 @@ public:
       }
     }
     
-    Stats.LLFIHardenedFunctions++;
+    Stats.FullyHardenedFunctions++;
     
-    errs() << "[LLFI] Comprehensive protection complete\n";
+    errs() << "[FI-HARDEN] Comprehensive protection complete\n";
   }
 };
 
