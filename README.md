@@ -8,6 +8,7 @@ An LLVM out-of-tree pass plugin for analyzing and hardening C/C++ code against f
 ---
 
 ## 📋 Table of Contents
+- [Blog](https://www.prajwal-kp.xyz/blog/building-fault-injection-hardening-llvm)
 - [Overview](#overview)
 - [Features](#features)
 - [Quick Start (Docker)](#-quick-start-recommended-docker)
