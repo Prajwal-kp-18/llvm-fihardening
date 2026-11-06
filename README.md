@@ -82,15 +82,31 @@ docker build -f docker-repro/Dockerfile -t fihardening .
 
 ## Usage
 
-The pass doesn't harden anything yet; for now it reports which countermeasures it would apply.
+The pass doesn't harden anything yet; for now it reports which functions it selected and which
+countermeasures it would apply.
 
-```sh
-opt -load-pass-plugin=build/FIHarden.so -passes='fi-harden<branches;compares>' in.ll -S -o out.ll
-clang -O2 -fpass-plugin=build/FIHarden.so -mllvm -fi-harden-countermeasures=branches,compares -c in.c
+Mark the functions to harden:
+
+```c
+__attribute__((annotate("fi_harden"))) int verify_pin(const char *pin) { ... }
 ```
 
-With no parameters, every countermeasure is on. Add `-pass-remarks=fi-harden` (opt) or
-`-Rpass=fi-harden` (clang) to see what it did.
+```sh
+clang -O2 -fpass-plugin=build/FIHarden.so -c in.c
+opt -load-pass-plugin=build/FIHarden.so -passes='fi-harden<branches;compares>' in.ll -S -o out.ll
+```
+
+| Parameter (`fi-harden<...>`, or `-mllvm -fi-harden=a,b` under clang) | Effect |
+|---|---|
+| `branches`, `compares` | Countermeasures to apply. Naming none applies all of them. |
+| `all` | Harden every defined function, not only the marked ones. |
+
+`-fi-harden-allowlist=<file>` (`-mllvm` under clang) adds functions by IR name, one per line,
+mangled for C++. The trap handler `fi_trap` is never hardened. Add `-pass-remarks=fi-harden` (opt)
+or `-Rpass=fi-harden` (clang) to see what was hardened, and `-pass-remarks-missed=fi-harden` /
+`-Rpass-missed=fi-harden` to see what was left alone and why. `-passes=fi-harden-skips` lists every
+instruction countermeasures must leave alone: atomics, volatile accesses, EH pads,
+`invoke`/`callbr`, `va_arg`, and anything with side effects or memory access.
 
 ```
 lib/            pass plugin sources

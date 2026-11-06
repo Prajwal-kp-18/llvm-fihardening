@@ -1,0 +1,4 @@
+# Functions to harden, one IR name per line.
+listed
+
+not_in_this_module

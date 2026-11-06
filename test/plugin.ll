@@ -1,11 +1,10 @@
 ; The plugin loads, fi-harden runs and the module still verifies.
-; RUN: opt -load-pass-plugin=%fi_plugin -passes='fi-harden,verify' -disable-output %s
+; RUN: opt -load-pass-plugin=%fi_plugin -passes='fi-harden<all>,verify' -disable-output %s
 
-; One remark per defined function; declarations are never touched.
-; RUN: opt -load-pass-plugin=%fi_plugin -passes=fi-harden -pass-remarks=fi-harden \
-; RUN:   -disable-output %s 2>&1 | FileCheck %s
-; CHECK: remark: {{.*}}countermeasures: branches, compares
-; CHECK-NOT: remark
+; With all, one remark per defined function; declarations are never touched.
+; RUN: opt -load-pass-plugin=%fi_plugin -passes='fi-harden<all>' -pass-remarks=fi-harden \
+; RUN:   -disable-output %s 2>&1 | FileCheck %s --implicit-check-not=remark
+; CHECK: remark: {{.*}}hardening f: branches, compares
 
 define i32 @f(i32 %a, i32 %b) {
   %c = icmp eq i32 %a, %b
