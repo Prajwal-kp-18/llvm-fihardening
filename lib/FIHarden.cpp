@@ -62,7 +62,8 @@ Expected<FIHardenOptions> parseOptions(StringRef Params) {
   return Opts;
 }
 
-class FIHardenPass : public PassInfoMixin<FIHardenPass> {
+// Required: hardening must also run on optnone functions and at -O0.
+class FIHardenPass : public RequiredPassInfoMixin<FIHardenPass> {
   FIHardenOptions Opts;
 
 public:
@@ -98,9 +99,6 @@ public:
     Opts.print(OS, ";");
     OS << '>';
   }
-
-  // Hardening must also run on optnone functions and at -O0.
-  static bool isRequired() { return true; }
 };
 
 } // namespace
