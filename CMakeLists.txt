@@ -20,3 +20,10 @@ target_compile_definitions(FIHarden PRIVATE ${LLVM_DEFINITIONS_LIST})
 target_include_directories(FIHarden SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
 target_compile_options(FIHarden PRIVATE -fno-rtti)
 set_target_properties(FIHarden PROPERTIES PREFIX "")
+
+# Tests: ninja check-fi
+find_program(LIT NAMES lit llvm-lit HINTS ${LLVM_TOOLS_BINARY_DIR})
+if(LIT)
+  configure_file(test/lit.site.cfg.py.in test/lit.site.cfg.py @ONLY)
+  add_custom_target(check-fi COMMAND ${LIT} -sv ${CMAKE_BINARY_DIR}/test DEPENDS FIHarden USES_TERMINAL)
+endif()

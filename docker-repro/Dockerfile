@@ -17,8 +17,10 @@ ENV PATH="/usr/lib/llvm-${LLVM_VERSION}/bin:${PATH}"
 WORKDIR /fihardening
 COPY CMakeLists.txt ./
 COPY lib/ lib/
+COPY test/ test/
 
 RUN cmake -S . -B build -G Ninja -DLLVM_DIR=/usr/lib/llvm-${LLVM_VERSION}/lib/cmake/llvm && \
-    ninja -C build
+    ninja -C build && \
+    ninja -C build check-fi
 
 CMD ["bash"]
