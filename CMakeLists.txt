@@ -24,7 +24,7 @@ include(AddLLVM)
 # 1. Analysis Pass (Detection Only)
 # =============================================================================
 add_library(FIHardeningPass MODULE
-  FIHardeningPass.cpp
+  lib/FIHardeningPass.cpp
 )
 
 set_target_properties(FIHardeningPass PROPERTIES
@@ -38,7 +38,7 @@ message(STATUS "Building FIHardeningPass (analysis pass)")
 # 2. Transformation Pass (IR Hardening)
 # =============================================================================
 add_library(FIHardeningTransform MODULE
-  FIHardeningTransform.cpp
+  lib/FIHardeningTransform.cpp
 )
 
 set_target_properties(FIHardeningTransform PROPERTIES
@@ -52,7 +52,7 @@ message(STATUS "Building FIHardeningTransform (transformation pass)")
 # 3. Runtime Verification Library
 # =============================================================================
 add_library(FIHardeningRuntime STATIC
-  FIHardeningRuntime.cpp
+  runtime/FIHardeningRuntime.cpp
 )
 
 # Runtime doesn't need LLVM, so no -fno-rtti required

@@ -45,12 +45,8 @@ WORKDIR /fihardening
 
 # Copy source files for building
 COPY CMakeLists.txt ./
-COPY FIHardeningPass.cpp ./
-COPY FIHardeningTransform.cpp ./
-COPY FIHardeningRuntime.cpp ./
-COPY FIHardeningRuntime.h ./
-COPY tests/ ./tests/
-COPY scripts/run_tests.sh ./scripts/
+COPY lib/ ./lib/
+COPY runtime/ ./runtime/
 
 # Build the plugin from source with LLVM 18
 RUN mkdir -p build && \
@@ -59,12 +55,6 @@ RUN mkdir -p build && \
     make -j$(nproc) && \
     cd /fihardening && \
     ln -sf /fihardening/build/FIHardeningTransform.so /fihardening/FIHardeningTransform.so
-
-# Create test results directory
-RUN mkdir -p ./test_results
-
-# Make scripts executable
-RUN chmod +x ./scripts/run_tests.sh
 
 # Create welcome message
 RUN echo '#!/bin/bash' > /usr/local/bin/welcome && \
@@ -77,18 +67,6 @@ RUN echo '#!/bin/bash' > /usr/local/bin/welcome && \
     echo 'echo ""' >> /usr/local/bin/welcome && \
     echo 'echo "Plugin built: FIHardeningTransform.so (from build/FIHardeningTransform.so)"' >> /usr/local/bin/welcome && \
     echo 'ls -lh build/FIHardeningTransform.so 2>/dev/null || echo "(not found)"' >> /usr/local/bin/welcome && \
-    echo 'echo ""' >> /usr/local/bin/welcome && \
-    echo 'echo "Test Runner Usage Examples:"' >> /usr/local/bin/welcome && \
-    echo 'echo "  # Run all tests (default)"' >> /usr/local/bin/welcome && \
-    echo 'echo "  bash scripts/run_tests.sh"' >> /usr/local/bin/welcome && \
-    echo 'echo "  # Run a specific test file"' >> /usr/local/bin/welcome && \
-    echo 'echo "  bash scripts/run_tests.sh tests/test_comprehensive.c"' >> /usr/local/bin/welcome && \
-    echo 'echo "  # Run multiple test files"' >> /usr/local/bin/welcome && \
-    echo 'echo "  bash scripts/run_tests.sh tests/test1.c tests/test2.c"' >> /usr/local/bin/welcome && \
-    echo 'echo "  # Run with full path"' >> /usr/local/bin/welcome && \
-    echo 'echo "  bash scripts/run_tests.sh /path/to/my_test.c"' >> /usr/local/bin/welcome && \
-    echo 'echo ""' >> /usr/local/bin/welcome && \
-    echo 'echo "Test results and CFG images are saved in ./test_results/"' >> /usr/local/bin/welcome && \
     echo 'echo ""' >> /usr/local/bin/welcome && \
     chmod +x /usr/local/bin/welcome
 
