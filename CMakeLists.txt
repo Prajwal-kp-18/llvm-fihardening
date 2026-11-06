@@ -4,6 +4,12 @@ project(FIHardeningPass)
 # Find LLVM
 find_package(LLVM REQUIRED CONFIG)
 
+# Not find_package(LLVM 23): LLVM's version check wants an exact major.minor match (23.1),
+# which would also reject trunk.
+if(LLVM_VERSION_MAJOR VERSION_LESS 23)
+  message(FATAL_ERROR "LLVM ${LLVM_PACKAGE_VERSION} found; need 23+. Pass -DLLVM_DIR=/usr/lib/llvm-23/cmake")
+endif()
+
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 

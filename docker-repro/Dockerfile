@@ -1,22 +1,24 @@
 # Dockerfile for FIHardeningTransform Reproducibility
-# Builds plugin from source with LLVM 18
-FROM ubuntu:22.04
+# Builds plugin from source against LLVM (version set by LLVM_VERSION below)
+FROM ubuntu:24.04
+
+ARG LLVM_VERSION=23
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install LLVM 18 and dependencies
+# Install LLVM and dependencies
 RUN apt-get update && \
     apt-get install -y wget gnupg software-properties-common lsb-release && \
     wget https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
-    ./llvm.sh 18 && \
+    ./llvm.sh ${LLVM_VERSION} && \
     apt-get update && \
     apt-get install -y \
-        clang-18 \
-        llvm-18 \
-        llvm-18-dev \
-        llvm-18-tools \
+        clang-${LLVM_VERSION} \
+        llvm-${LLVM_VERSION} \
+        llvm-${LLVM_VERSION}-dev \
+        llvm-${LLVM_VERSION}-tools \
         cmake \
         make \
         build-essential \
@@ -28,17 +30,17 @@ RUN apt-get update && \
         less && \
     rm -rf /var/lib/apt/lists/* llvm.sh
 
-# Set up symbolic links for LLVM 18
-RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100 && \
-    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100 && \
-    update-alternatives --install /usr/bin/opt opt /usr/bin/opt-18 100 && \
-    update-alternatives --install /usr/bin/llc llc /usr/bin/llc-18 100 && \
-    update-alternatives --install /usr/bin/llvm-config llvm-config /usr/bin/llvm-config-18 100
+# Unversioned tool names
+RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${LLVM_VERSION} 100 && \
+    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-${LLVM_VERSION} 100 && \
+    update-alternatives --install /usr/bin/opt opt /usr/bin/opt-${LLVM_VERSION} 100 && \
+    update-alternatives --install /usr/bin/llc llc /usr/bin/llc-${LLVM_VERSION} 100 && \
+    update-alternatives --install /usr/bin/llvm-config llvm-config /usr/bin/llvm-config-${LLVM_VERSION} 100
 
 # Set environment variables
-ENV LLVM_DIR=/usr/lib/llvm-18
-ENV PATH="/usr/lib/llvm-18/bin:${PATH}"
-ENV LD_LIBRARY_PATH="/usr/lib/llvm-18/lib:${LD_LIBRARY_PATH}"
+ENV LLVM_DIR=/usr/lib/llvm-${LLVM_VERSION}
+ENV PATH="/usr/lib/llvm-${LLVM_VERSION}/bin:${PATH}"
+ENV LD_LIBRARY_PATH="/usr/lib/llvm-${LLVM_VERSION}/lib"
 
 # Set up working directory
 WORKDIR /fihardening
@@ -48,10 +50,10 @@ COPY CMakeLists.txt ./
 COPY lib/ ./lib/
 COPY runtime/ ./runtime/
 
-# Build the plugin from source with LLVM 18
+# Build the plugin from source
 RUN mkdir -p build && \
     cd build && \
-    cmake -DLLVM_DIR=/usr/lib/llvm-18/cmake .. && \
+    cmake -DLLVM_DIR=${LLVM_DIR}/cmake .. && \
     make -j$(nproc) && \
     cd /fihardening && \
     ln -sf /fihardening/build/FIHardeningTransform.so /fihardening/FIHardeningTransform.so

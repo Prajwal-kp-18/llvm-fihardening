@@ -9,7 +9,7 @@
 
 #include "llvm/IR/PassManager.h"
 #include "llvm/Passes/PassBuilder.h"
-#include "llvm/Passes/PassPlugin.h"
+#include "llvm/Plugins/PassPlugin.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/BasicBlock.h"
@@ -197,7 +197,7 @@ private:
     
     // void fi_verify_int32(int32_t value, int32_t expected, const char *location)
     Type *Int32Ty = Type::getInt32Ty(Ctx);
-    Type *Int8PtrTy = PointerType::getUnqual(Type::getInt8Ty(Ctx));
+    Type *Int8PtrTy = PointerType::getUnqual(Ctx);
     Type *VoidTy = Type::getVoidTy(Ctx);
     
     FunctionType *VerifyInt32Ty = FunctionType::get(
@@ -249,7 +249,7 @@ private:
     CheckBoundsFunc = M.getOrInsertFunction("fi_check_bounds", CheckBoundsTy);
     
     // void fi_protect_return_addr(void **addr_location)
-    Type *Int8PtrPtrTy = PointerType::getUnqual(Int8PtrTy);
+    Type *Int8PtrPtrTy = PointerType::getUnqual(Ctx);
     FunctionType *ProtectReturnTy = FunctionType::get(
         VoidTy, {Int8PtrPtrTy}, false);
     ProtectReturnAddrFunc = M.getOrInsertFunction("fi_protect_return_addr", ProtectReturnTy);
@@ -274,7 +274,7 @@ private:
                              const std::string &FuncName, 
                              const std::string &InstType) {
     std::string location = FuncName + ":" + InstType;
-    return Builder.CreateGlobalStringPtr(location);
+    return Builder.CreateGlobalString(location);
   }
   
   // Skip intrinsic and debug instructions
@@ -303,9 +303,7 @@ private:
   }
   
   // Harden a conditional branch with redundant checks
-  void hardenBranch(BranchInst *BI, Function &F) {
-    if (!BI->isConditional())
-      return;
+  void hardenBranch(CondBrInst *BI, Function &F) {
     
     // Only harden based on level
     if (HardenLevel == 0 && !isInCriticalPath(BI))
@@ -373,8 +371,8 @@ private:
       Builder.CreateCall(VerifyInt64Func, {LoadedValue, LoadDup, Location});
       Stats.VerificationCallsAdded++;
     } else if (LoadType->isPointerTy()) {
-      Value *Ptr1 = Builder.CreateBitCast(LoadedValue, PointerType::getUnqual(Builder.getInt8Ty()));
-      Value *Ptr2 = Builder.CreateBitCast(LoadDup, PointerType::getUnqual(Builder.getInt8Ty()));
+      Value *Ptr1 = Builder.CreateBitCast(LoadedValue, Builder.getPtrTy());
+      Value *Ptr2 = Builder.CreateBitCast(LoadDup, Builder.getPtrTy());
       Builder.CreateCall(VerifyPointerFunc, {Ptr1, Ptr2, Location});
       Stats.VerificationCallsAdded++;
     }
@@ -428,8 +426,8 @@ private:
       Builder.CreateCall(VerifyInt64Func, {VerifyLoad, StoredValue, Location});
       Stats.VerificationCallsAdded++;
     } else if (ValueType->isPointerTy()) {
-      Value *Ptr1 = Builder.CreateBitCast(VerifyLoad, PointerType::getUnqual(Builder.getInt8Ty()));
-      Value *Ptr2 = Builder.CreateBitCast(StoredValue, PointerType::getUnqual(Builder.getInt8Ty()));
+      Value *Ptr1 = Builder.CreateBitCast(VerifyLoad, Builder.getPtrTy());
+      Value *Ptr2 = Builder.CreateBitCast(StoredValue, Builder.getPtrTy());
       Builder.CreateCall(VerifyPointerFunc, {Ptr1, Ptr2, Location});
       Stats.VerificationCallsAdded++;
     }
@@ -439,7 +437,7 @@ private:
       const DataLayout &DL = M->getDataLayout();
       uint64_t Size = DL.getTypeStoreSize(ValueType);
       
-      Value *PtrCast = Builder.CreateBitCast(StorePtr, PointerType::getUnqual(Builder.getInt8Ty()));
+      Value *PtrCast = Builder.CreateBitCast(StorePtr, Builder.getPtrTy());
       Value *SizeVal = Builder.getInt64(Size);
       Builder.CreateCall(ChecksumUpdateFunc, {PtrCast, SizeVal});
       Stats.VerificationCallsAdded++;
@@ -509,7 +507,7 @@ private:
     // Get expected function pointer (from data-flow or type)
     // For now, we verify it matches expectations at runtime
     Type *Int8Ty = Builder.getInt8Ty();
-    Value *CalledPtr = Builder.CreateBitCast(CalledValue, PointerType::getUnqual(Int8Ty));
+    Value *CalledPtr = Builder.CreateBitCast(CalledValue, Builder.getPtrTy());
     Value *ExpectedPtr = CalledPtr; // In real implementation, track expected targets
     
     // Insert CFI check before the call
@@ -518,7 +516,7 @@ private:
     Stats.IndirectCallsHardened++;
     
     if (EnableFaultLogging) {
-      Value *LogMsg = Builder.CreateGlobalStringPtr("CFI check passed");
+      Value *LogMsg = Builder.CreateGlobalString("CFI check passed");
       Builder.CreateCall(LogFaultFunc, {LogMsg, Builder.getInt32(0)});
       Stats.FaultLogsAdded++;
     }
@@ -579,8 +577,8 @@ private:
     Module *M = F.getParent();
     
     Type *Int8Ty = Builder.getInt8Ty();
-    Value *Ptr = Builder.CreateBitCast(GEP, PointerType::getUnqual(Int8Ty));
-    Value *Base = Builder.CreateBitCast(GEP->getPointerOperand(), PointerType::getUnqual(Int8Ty));
+    Value *Ptr = Builder.CreateBitCast(GEP, Builder.getPtrTy());
+    Value *Base = Builder.CreateBitCast(GEP->getPointerOperand(), Builder.getPtrTy());
     
     // Estimate size (simplified - real implementation would track allocations)
     Value *Size = Builder.getInt64(1024); // Placeholder
@@ -601,7 +599,7 @@ private:
     // Error block: log and abort
     Builder.SetInsertPoint(ErrorBB);
     if (EnableFaultLogging) {
-      Value *LogMsg = Builder.CreateGlobalStringPtr("Bounds check failed!");
+      Value *LogMsg = Builder.CreateGlobalString("Bounds check failed!");
       Builder.CreateCall(LogFaultFunc, {LogMsg, Builder.getInt32(2)}); // Severity 2 = Error
     }
     Builder.CreateUnreachable();
@@ -622,7 +620,7 @@ private:
     Type *Int8Ty = Builder.getInt8Ty();
     // Allocate space to store return address protection
     AllocaInst *RetAddrStorage = Builder.CreateAlloca(
-        PointerType::getUnqual(Int8Ty), nullptr, "return_addr_storage");
+        Builder.getPtrTy(), nullptr, "return_addr_storage");
     
     // Protect return address at function entry
     Builder.CreateCall(ProtectReturnAddrFunc, {RetAddrStorage});
@@ -655,7 +653,7 @@ private:
       
       RetBuilder.SetInsertPoint(ErrorBB);
       if (EnableFaultLogging) {
-        Value *LogMsg = RetBuilder.CreateGlobalStringPtr("Return address corrupted!");
+        Value *LogMsg = RetBuilder.CreateGlobalString("Return address corrupted!");
         RetBuilder.CreateCall(LogFaultFunc, {LogMsg, RetBuilder.getInt32(3)}); // Critical
       }
       RetBuilder.CreateUnreachable();
@@ -675,7 +673,7 @@ private:
     
     // Add verification that we're actually in an exception state
     if (EnableFaultLogging) {
-      Value *LogMsg = Builder.CreateGlobalStringPtr("Exception handler entered");
+      Value *LogMsg = Builder.CreateGlobalString("Exception handler entered");
       Builder.CreateCall(LogFaultFunc, {LogMsg, Builder.getInt32(1)}); // Warning level
       Stats.FaultLogsAdded++;
     }
@@ -696,7 +694,7 @@ private:
     // For volatile loads (hardware I/O), validate the value
     Value *LoadedValue = LI;
     Type *Int8Ty = Builder.getInt8Ty();
-    Value *PtrCast = Builder.CreateBitCast(LI->getPointerOperand(), PointerType::getUnqual(Int8Ty));
+    Value *PtrCast = Builder.CreateBitCast(LI->getPointerOperand(), Builder.getPtrTy());
     
     // Assume we expect certain patterns (in real use, this would be configurable)
     Value *ExpectedPattern = Builder.getInt32(0); // Placeholder
@@ -717,13 +715,11 @@ private:
     
     // Add timing noise at strategic points to prevent timing analysis
     for (Instruction &I : BB) {
-      if (BranchInst *BI = dyn_cast<BranchInst>(&I)) {
-        if (BI->isConditional()) {
-          IRBuilder<> Builder(BI);
-          Builder.CreateCall(AddTimingNoiseFunc, {});
-          Stats.TimingMitigationsAdded++;
-          Stats.VerificationCallsAdded++;
-        }
+      if (CondBrInst *BI = dyn_cast<CondBrInst>(&I)) {
+        IRBuilder<> Builder(BI);
+        Builder.CreateCall(AddTimingNoiseFunc, {});
+        Stats.TimingMitigationsAdded++;
+        Stats.VerificationCallsAdded++;
       }
     }
     
@@ -749,9 +745,8 @@ private:
     for (User *U : I->users()) {
       if (isa<ReturnInst>(U))
         return true;
-      if (BranchInst *BI = dyn_cast<BranchInst>(U))
-        if (BI->isConditional())
-          return true;
+      if (isa<CondBrInst>(U))
+        return true;
     }
     
     return false;
@@ -786,7 +781,7 @@ public:
       hardenFunctionEntry(F);
     
     // Collect instructions to harden (avoid iterator invalidation)
-    std::vector<BranchInst*> BranchesToHarden;
+    std::vector<CondBrInst*> BranchesToHarden;
     std::vector<LoadInst*> LoadsToHarden;
     std::vector<StoreInst*> StoresToHarden;
     std::vector<BinaryOperator*> ArithmeticToHarden;
@@ -805,8 +800,8 @@ public:
         if (shouldSkipInstruction(I))
           continue;
         
-        if (BranchInst *BI = dyn_cast<BranchInst>(&I)) {
-          if (HardenBranches && BI->isConditional() && isa<ICmpInst>(BI->getCondition()))
+        if (CondBrInst *BI = dyn_cast<CondBrInst>(&I)) {
+          if (HardenBranches && isa<ICmpInst>(BI->getCondition()))
             BranchesToHarden.push_back(BI);
         } else if (LoadInst *LI = dyn_cast<LoadInst>(&I)) {
           if (HardenMemory)
@@ -836,7 +831,7 @@ public:
     }
     
     // Apply basic transformations
-    for (BranchInst *BI : BranchesToHarden)
+    for (CondBrInst *BI : BranchesToHarden)
       hardenBranch(BI, F);
     
     for (LoadInst *LI : LoadsToHarden)
@@ -991,7 +986,7 @@ public:
     
     // Error block: log fault and abort
     Builder.SetInsertPoint(ErrorBB);
-    Value *ErrorMsg = Builder.CreateGlobalStringPtr(
+    Value *ErrorMsg = Builder.CreateGlobalString(
         "TMR voting failed in " + F.getName().str());
     Builder.CreateCall(LogFaultFunc, {ErrorMsg, Builder.getInt32(2)}); // Severity 2
     Builder.CreateUnreachable();
@@ -1013,7 +1008,7 @@ public:
     
     errs() << "  [PHI] Verifying phi node in function '" << F.getName() << "'\n";
     
-    IRBuilder<> Builder(Phi->getParent()->getFirstNonPHI());
+    IRBuilder<> Builder(Phi->getParent(), Phi->getParent()->getFirstNonPHIIt());
     Module *M = F.getParent();
     
     // Create a redundant phi node
@@ -1040,8 +1035,8 @@ public:
       Builder.CreateCall(VerifyInt64Func, {Phi, PhiDup, Location});
       Stats.VerificationCallsAdded++;
     } else if (PhiType->isPointerTy()) {
-      Value *Ptr1 = Builder.CreateBitCast(Phi, PointerType::getUnqual(Builder.getInt8Ty()));
-      Value *Ptr2 = Builder.CreateBitCast(PhiDup, PointerType::getUnqual(Builder.getInt8Ty()));
+      Value *Ptr1 = Builder.CreateBitCast(Phi, Builder.getPtrTy());
+      Value *Ptr2 = Builder.CreateBitCast(PhiDup, Builder.getPtrTy());
       Builder.CreateCall(VerifyPointerFunc, {Ptr1, Ptr2, Location});
       Stats.VerificationCallsAdded++;
     }
@@ -1056,7 +1051,7 @@ public:
     if (HardenLevel < 2) return;
     
     // Skip certain instruction types
-    if (isa<PHINode>(I) || isa<AllocaInst>(I) || isa<BranchInst>(I) ||
+    if (isa<PHINode>(I) || isa<AllocaInst>(I) || isa<CondBrInst, UncondBrInst>(I) ||
         isa<StoreInst>(I) || isa<LoadInst>(I))
       return;
     
@@ -1098,8 +1093,8 @@ public:
       Builder.CreateCall(VerifyInt32Func, {I32_1, I32_2, Location});
       Stats.VerificationCallsAdded++;
     } else if (InstType->isPointerTy()) {
-      Value *Ptr1 = Builder.CreateBitCast(I, PointerType::getUnqual(Builder.getInt8Ty()));
-      Value *Ptr2 = Builder.CreateBitCast(Clone, PointerType::getUnqual(Builder.getInt8Ty()));
+      Value *Ptr1 = Builder.CreateBitCast(I, Builder.getPtrTy());
+      Value *Ptr2 = Builder.CreateBitCast(Clone, Builder.getPtrTy());
       Builder.CreateCall(VerifyPointerFunc, {Ptr1, Ptr2, Location});
       Stats.VerificationCallsAdded++;
     }

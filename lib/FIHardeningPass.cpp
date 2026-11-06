@@ -1,6 +1,6 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/Passes/PassBuilder.h"
-#include "llvm/Passes/PassPlugin.h"
+#include "llvm/Plugins/PassPlugin.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Instructions.h"
@@ -40,8 +40,8 @@ public:
         // Second pass: check for vulnerabilities
         for (Instruction &I : BB) {
           // Check conditional branches
-          if (auto *Br = dyn_cast<BranchInst>(&I)) {
-            if (Br->isConditional() && !hasEqualityComparison) {
+          if (isa<CondBrInst>(&I)) {
+            if (!hasEqualityComparison) {
               errs() << "Warning: Conditional branch in function '" << F.getName()
                      << "' lacks redundant condition check (no equality comparison in BB)\n";
               VulnerableCount++;
