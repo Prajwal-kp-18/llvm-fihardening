@@ -5,6 +5,8 @@ attacks, by re-checking conditional branches and comparisons from opaque copies 
 
 **Status: being rebuilt.** No countermeasures yet.
 
+Blog: [Building fault-injection hardening in LLVM](https://www.prajwal-kp.xyz/blog/building-fault-injection-hardening-llvm)
+
 ## Threat model
 
 | | |
