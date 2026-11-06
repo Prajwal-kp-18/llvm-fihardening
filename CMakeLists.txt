@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(FIHarden CXX)
+project(FIHarden)
 
 find_package(LLVM REQUIRED CONFIG)
 
