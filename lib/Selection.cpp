@@ -6,7 +6,6 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/LineIterator.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -14,12 +13,6 @@
 using namespace llvm;
 
 #define DEBUG_TYPE "fi-harden"
-
-static cl::opt<std::string> AllowlistFile(
-    "fi-harden-allowlist",
-    cl::desc("File of functions to harden, one IR name (mangled for C++) per "
-             "line; '#' starts a comment line"),
-    cl::value_desc("file"));
 
 // The runtime's trap handler: a check inside it would trap into itself.
 static constexpr StringLiteral TrapHandler = "fi_trap";
@@ -48,25 +41,27 @@ static void addAnnotated(Module &M, SmallPtrSetImpl<Function *> &Out) {
   }
 }
 
-// Names absent from this module are fine: one list serves every source file.
-static void addAllowlisted(Module &M, SmallPtrSetImpl<Function *> &Out) {
-  if (AllowlistFile.empty())
+// One IR name (mangled for C++) per line; '#' starts a comment line. Names
+// absent from this module are fine: one list serves every source file.
+static void addAllowlisted(Module &M, StringRef Path,
+                           SmallPtrSetImpl<Function *> &Out) {
+  if (Path.empty())
     return;
-  auto Buf = MemoryBuffer::getFile(AllowlistFile.getValue(), /*IsText=*/true);
+  auto Buf = MemoryBuffer::getFile(Path, /*IsText=*/true);
   if (!Buf)
-    reportFatalUsageError(Twine("fi-harden: cannot read allowlist '") +
-                          AllowlistFile.getValue() +
+    reportFatalUsageError("fi-harden: cannot read allowlist '" + Path +
                           "': " + Buf.getError().message());
   for (line_iterator L(**Buf, /*SkipBlanks=*/true, '#'); !L.is_at_eof(); ++L)
     if (Function *F = M.getFunction(L->trim()))
       Out.insert(F);
 }
 
-SmallVector<Function *> fiharden::selectFunctions(Module &M, bool All) {
+SmallVector<Function *> fiharden::selectFunctions(Module &M, bool All,
+                                                  StringRef Allowlist) {
   SmallPtrSet<Function *, 8> Marked;
   if (!All) {
     addAnnotated(M, Marked);
-    addAllowlisted(M, Marked);
+    addAllowlisted(M, Allowlist, Marked);
   }
   SmallVector<Function *> Selected;
   for (Function &F : M)

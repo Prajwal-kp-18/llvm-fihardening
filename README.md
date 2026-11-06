@@ -100,9 +100,9 @@ opt -load-pass-plugin=build/FIHarden.so -passes='fi-harden<branches;compares>' i
 |---|---|
 | `branches`, `compares` | Countermeasures to apply. Naming none applies all of them. |
 | `all` | Harden every defined function, not only the marked ones. |
+| `allowlist=<file>` | Also harden the functions named in `<file>`: one IR name per line, mangled for C++. |
 
-`-fi-harden-allowlist=<file>` (`-mllvm` under clang) adds functions by IR name, one per line,
-mangled for C++. The trap handler `fi_trap` is never hardened. Add `-pass-remarks=fi-harden` (opt)
+The trap handler `fi_trap` is never hardened. Add `-pass-remarks=fi-harden` (opt)
 or `-Rpass=fi-harden` (clang) to see what was hardened, and `-pass-remarks-missed=fi-harden` /
 `-Rpass-missed=fi-harden` to see what was left alone and why. `-passes=fi-harden-skips` lists every
 instruction countermeasures must leave alone: atomics, volatile accesses, EH pads,

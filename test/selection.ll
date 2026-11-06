@@ -1,4 +1,4 @@
-; Only functions marked annotate("fi_harden") or named in -fi-harden-allowlist
+; Only functions marked annotate("fi_harden") or named in the allowlist file
 ; are hardened. Declarations and the trap handler fi_trap never are, even when
 ; marked.
 ; RUN: opt -load-pass-plugin=%fi_plugin -passes=fi-harden -pass-remarks=fi-harden \
@@ -7,8 +7,8 @@
 
 ; The allowlist adds to the annotations. Comment lines, blank lines and names
 ; missing from this module are ignored.
-; RUN: opt -load-pass-plugin=%fi_plugin -passes=fi-harden -pass-remarks=fi-harden \
-; RUN:   -fi-harden-allowlist=%S/Inputs/allowlist.txt -disable-output %s 2>&1 \
+; RUN: opt -load-pass-plugin=%fi_plugin -passes='fi-harden<allowlist=%S/Inputs/allowlist.txt>' \
+; RUN:   -pass-remarks=fi-harden -disable-output %s 2>&1 \
 ; RUN:   | FileCheck %s --check-prefixes=MARKED,LISTED --implicit-check-not=hardening
 ; LISTED: hardening listed:
 
@@ -20,7 +20,7 @@
 ; ALL: hardening listed:
 ; ALL: hardening plain:
 
-; RUN: not opt -load-pass-plugin=%fi_plugin -passes=fi-harden -fi-harden-allowlist=%t.missing \
+; RUN: not opt -load-pass-plugin=%fi_plugin -passes='fi-harden<allowlist=%t.missing>' \
 ; RUN:   -disable-output %s 2>&1 | FileCheck %s --check-prefix=MISSING
 ; MISSING: fi-harden: cannot read allowlist '{{.*}}.missing'
 

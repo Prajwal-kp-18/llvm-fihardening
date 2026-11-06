@@ -14,10 +14,15 @@
 // -mllvm -fi-harden takes the same parameters as fi-harden<...>.
 // RUN: clang -O2 -fpass-plugin=%fi_plugin -mllvm -fi-harden=all,branches \
 // RUN:   -Rpass=fi-harden -S -o /dev/null %s 2>&1 | FileCheck %s --check-prefix=ALL
+// RUN: clang -O2 -fpass-plugin=%fi_plugin -mllvm -fi-harden=allowlist=%S/Inputs/allowlist.txt \
+// RUN:   -Rpass=fi-harden -S -o /dev/null %s 2>&1 | FileCheck %s --check-prefix=LIST --implicit-check-not=remark
 // RUN: not clang -O2 -fpass-plugin=%fi_plugin -mllvm -fi-harden=bogus \
 // RUN:   -S -o /dev/null %s 2>&1 | FileCheck %s --check-prefix=BAD
 // ALL: remark: hardening check_pin: branches{{ }}
 // ALL: remark: hardening helper: branches{{ }}
+// ALL: remark: hardening listed: branches{{ }}
+// LIST: remark: hardening check_pin: branches, compares
+// LIST: remark: hardening listed: branches, compares
 // BAD: invalid fi-harden parameter 'bogus'
 
 __attribute__((annotate("fi_harden"))) int check_pin(int a, int b) {
@@ -25,3 +30,5 @@ __attribute__((annotate("fi_harden"))) int check_pin(int a, int b) {
 }
 
 int helper(int x) { return x + 1; }
+
+int listed(int x) { return x - 1; }

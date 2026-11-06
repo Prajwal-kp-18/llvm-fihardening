@@ -30,12 +30,13 @@ STATISTIC(NumFunctions, "Functions selected for hardening");
 static cl::list<std::string> ClangParams(
     "fi-harden", cl::CommaSeparated,
     cl::desc("fi-harden parameters under clang -fpass-plugin, as in "
-             "fi-harden<...>: all, branches, compares"));
+             "fi-harden<...>: all, allowlist=<file>, branches, compares"));
 
 namespace {
 
 struct FIHardenOptions {
-  bool All = false; // every defined function, not just the marked ones
+  bool All = false;      // every defined function, not just the marked ones
+  std::string Allowlist; // file naming more functions to harden
   bool Branches = false;
   bool Compares = false;
 
@@ -50,20 +51,26 @@ struct FIHardenOptions {
 };
 
 // Parses the text between the <> of fi-harden<all;branches;compares>. Naming
-// no countermeasure means every countermeasure.
+// no countermeasure means every countermeasure. The allowlist is a parameter,
+// not a cl::opt, because opt in LLVM 24 parses its options before it loads
+// plugins.
 Expected<FIHardenOptions> parseOptions(StringRef Params) {
   FIHardenOptions Opts;
   if (!Params.empty())
     for (StringRef P : split(Params, ';')) {
+      StringRef File = P;
       if (P == "all")
         Opts.All = true;
       else if (P == "branches")
         Opts.Branches = true;
       else if (P == "compares")
         Opts.Compares = true;
+      else if (File.consume_front("allowlist=") && !File.empty())
+        Opts.Allowlist = File.str();
       else
-        return createStringError("invalid fi-harden parameter '" + P +
-                                 "'; expected all, branches or compares");
+        return createStringError(
+            "invalid fi-harden parameter '" + P +
+            "'; expected all, allowlist=<file>, branches or compares");
     }
   if (!Opts.Branches && !Opts.Compares)
     Opts.Branches = Opts.Compares = true;
@@ -80,7 +87,8 @@ public:
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
     FunctionAnalysisManager &FAM =
         MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
-    for (Function *F : fiharden::selectFunctions(M, Opts.All)) {
+    for (Function *F :
+         fiharden::selectFunctions(M, Opts.All, Opts.Allowlist)) {
       ++NumFunctions;
       std::string Msg;
       raw_string_ostream OS(Msg);
@@ -99,6 +107,8 @@ public:
   // back to opt.
   void printPipeline(raw_ostream &OS, function_ref<StringRef(StringRef)>) {
     OS << "fi-harden<" << (Opts.All ? "all;" : "");
+    if (!Opts.Allowlist.empty())
+      OS << "allowlist=" << Opts.Allowlist << ';';
     Opts.print(OS, ";");
     OS << '>';
   }
