@@ -23,9 +23,27 @@ STATISTIC(NumFunctions, "Functions visited");
 namespace {
 
 struct FIHardenOptions {
-  bool Branches = true;
-  bool Compares = true;
+  bool Branches = false;
+  bool Compares = false;
 };
+
+// Parses the text between the <> of fi-harden<branches;compares>. No
+// parameters means every countermeasure.
+Expected<FIHardenOptions> parseOptions(StringRef Params) {
+  if (Params.empty())
+    return FIHardenOptions{true, true};
+  FIHardenOptions Opts;
+  for (StringRef P : split(Params, ';')) {
+    if (P == "branches")
+      Opts.Branches = true;
+    else if (P == "compares")
+      Opts.Compares = true;
+    else
+      return createStringError("invalid fi-harden parameter '" + P +
+                               "'; expected branches or compares");
+  }
+  return Opts;
+}
 
 raw_ostream &operator<<(raw_ostream &OS, const FIHardenOptions &Opts) {
   ListSeparator LS;
@@ -73,9 +91,14 @@ extern "C" LLVM_ATTRIBUTE_WEAK PassPluginLibraryInfo llvmGetPassPluginInfo() {
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, ModulePassManager &MPM,
                    ArrayRef<PassBuilder::PipelineElement>) {
-                  if (Name != "fi-harden")
+                  if (!PassBuilder::checkParametrizedPassName(Name,
+                                                              "fi-harden"))
                     return false;
-                  MPM.addPass(FIHardenPass(FIHardenOptions()));
+                  auto Opts = PassBuilder::parsePassParameters(
+                      parseOptions, Name, "fi-harden");
+                  if (!Opts)
+                    reportFatalUsageError(Opts.takeError());
+                  MPM.addPass(FIHardenPass(*Opts));
                   return true;
                 });
           }};
