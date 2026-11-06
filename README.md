@@ -66,16 +66,34 @@ cmake -S . -B build -G Ninja -DLLVM_DIR=/usr/lib/llvm-23/lib/cmake/llvm
 ninja -C build
 ```
 
-Or build in Docker, which installs LLVM 23 from apt.llvm.org:
+Run the tests (needs LLVM's `lit` and `FileCheck`, from the `llvm-23-tools` package):
+
+```sh
+ninja -C build check-fi
+```
+
+Or do all of that in Docker, which installs LLVM 23 from apt.llvm.org. CI runs this same build:
 
 ```sh
 docker build -f docker-repro/Dockerfile -t fihardening .
 ```
 
+## Usage
+
+The pass doesn't harden anything yet; for now it reports which countermeasures it would apply.
+
+```sh
+opt -load-pass-plugin=build/FIHarden.so -passes='fi-harden<branches;compares>' in.ll -S -o out.ll
+clang -O2 -fpass-plugin=build/FIHarden.so -mllvm -fi-harden-countermeasures=branches,compares -c in.c
+```
+
+With no parameters, every countermeasure is on. Add `-pass-remarks=fi-harden` (opt) or
+`-Rpass=fi-harden` (clang) to see what it did.
+
 ```
 lib/            pass plugin sources
 test/           lit + FileCheck tests
-docker-repro/   reproducible build
+docker-repro/   reproducible build, also used by CI
 ```
 
 License: [MIT](LICENSE)

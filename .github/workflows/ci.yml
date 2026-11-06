@@ -1,0 +1,19 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: LLVM ${{ matrix.llvm }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        llvm: [23, 24]
+    # 24 is trunk: a failure there is an early warning about upstream API changes, not a broken build.
+    continue-on-error: ${{ matrix.llvm == 24 }}
+    steps:
+      - uses: actions/checkout@v4
+      # The Dockerfile installs LLVM, configures, builds and runs check-fi: CI and local builds
+      # run the same steps.
+      - run: docker build -f docker-repro/Dockerfile --build-arg LLVM_VERSION=${{ matrix.llvm }} .
