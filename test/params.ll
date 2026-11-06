@@ -8,6 +8,11 @@
 ; RUN: opt -load-pass-plugin=%fi_plugin -passes='fi-harden' -pass-remarks=fi-harden \
 ; RUN:   -disable-output %s 2>&1 | FileCheck %s --check-prefix=BOTH
 
+; The parsed parameters print back in pipeline syntax.
+; RUN: opt -load-pass-plugin=%fi_plugin -passes='fi-harden<compares;branches>' -print-pipeline-passes \
+; RUN:   -disable-output %s | FileCheck %s --check-prefix=PRINT
+; PRINT: fi-harden<branches;compares>
+
 ; BRANCHES: countermeasures: branches{{$}}
 ; COMPARES: countermeasures: compares{{$}}
 ; BOTH: countermeasures: branches, compares{{$}}
