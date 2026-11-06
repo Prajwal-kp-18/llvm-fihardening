@@ -24,3 +24,4 @@ __pycache__/
 
 # Private notes
 docs/ANALYSIS_AND_ROADMAP.md
+/task.md
