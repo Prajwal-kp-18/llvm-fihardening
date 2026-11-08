@@ -31,7 +31,8 @@
 ; REMARK: hardening vec:
 ; REMARK: icmp left alone: operands have no opaque copy
 
-; Trap unless the copy of %c and the inverse differ; the return reads the copy.
+; Trap unless the copy of %c equals the negated copy of the inverse; the return
+; reads the copy.
 ; CHECK-LABEL: @ret(
 ; CHECK:         %c = icmp eq i32 %a, %b
 ; CHECK-NEXT:    [[Z:%.*]] = zext i1 %c to i8
@@ -40,7 +41,11 @@
 ; CHECK-NEXT:    %a.copy = call i32 asm sideeffect "", "=r,0"(i32 %a)
 ; CHECK-NEXT:    %b.copy = call i32 asm sideeffect "", "=r,0"(i32 %b)
 ; CHECK-NEXT:    %c.inv = icmp ne i32 %a.copy, %b.copy
-; CHECK-NEXT:    [[OK:%.*]] = icmp ne i1 [[C]], %c.inv
+; CHECK-NEXT:    [[IZ:%.*]] = zext i1 %c.inv to i8
+; CHECK-NEXT:    %c.inv.copy = call i8 asm sideeffect "", "=r,0"(i8 [[IZ]])
+; CHECK-NEXT:    [[I:%.*]] = trunc i8 %c.inv.copy to i1
+; CHECK-NEXT:    [[NOT:%.*]] = xor i1 [[I]], true
+; CHECK-NEXT:    [[OK:%.*]] = icmp eq i1 [[C]], [[NOT]]
 ; CHECK-NEXT:    br i1 [[OK]], label %fi.ok, label %fi.trap
 ; CHECK:       fi.ok:
 ; CHECK-NEXT:    %r = zext i1 [[C]] to i32

@@ -29,7 +29,11 @@
 // IR-NEXT:    [[P:%[a-z0-9.]+]] = call i32 asm sideeffect "", "=r,0"(i32 [[PIN]])
 // IR-NEXT:    [[S:%[a-z0-9.]+]] = call i32 asm sideeffect "", "=r,0"(i32 [[SECRET]])
 // IR-NEXT:    %cmp.inv = icmp ne i32 [[P]], [[S]]
-// IR-NEXT:    [[OK:%[0-9]+]] = icmp ne i1 [[C]], %cmp.inv
+// IR-NEXT:    [[IZ:%[0-9]+]] = zext i1 %cmp.inv to i8
+// IR-NEXT:    %cmp.inv.copy = call i8 asm sideeffect "", "=r,0"(i8 [[IZ]])
+// IR-NEXT:    [[I:%[0-9]+]] = trunc i8 %cmp.inv.copy to i1
+// IR-NEXT:    [[NOT:%[0-9]+]] = xor i1 [[I]], true
+// IR-NEXT:    [[OK:%[0-9]+]] = icmp eq i1 [[C]], [[NOT]]
 // IR-NEXT:    br i1 [[OK]], label %fi.ok, label %fi.trap
 // IR:       fi.ok:
 // IR-NEXT:    %conv = zext i1 [[C]] to i32
@@ -51,9 +55,11 @@
 // IR:         br i1 {{%[a-z.]+again}}, label %if.then, label %fi.trap
 // IR:       fi.trap:{{.*}}preds = %entry, %fi.false, %fi.true
 
-// The check compares the register that's returned (w0) or stored and
-// returned (r0) with the inverse, and traps if they're equal. On Thumb-2 the
-// trap is the fall-through of a predicated return: skipping bxne reaches it.
+// The inverse keeps the reversed predicate (cset ne, movne). The check
+// compares the register that's returned (w0) or stored and returned (r0) with
+// the negated inverse (bic) and traps unless they're equal, so a skipped and
+// that leaves junk there traps too. On Thumb-2 the trap is the fall-through of
+// a predicated return: skipping bxeq reaches it.
 // A64-LABEL:  verify:
 // A64:          cmp w0, w1
 // A64:          cset [[C:w[0-9]+]], eq
@@ -61,8 +67,10 @@
 // A64:          cmp w0, w1
 // A64-NEXT:     and w0, [[C]], #0x1
 // A64-NEXT:     cset [[INV:w[0-9]+]], ne
-// A64-NEXT:     cmp w0, [[INV]]
-// A64-NEXT:     b.eq [[TRAP:.LBB0_[0-9]+]]
+// A64-NEXT:     //APP
+// A64:          bic [[EXP:w[0-9]+]], {{w[0-9]+}}, [[INV]]
+// A64-NEXT:     cmp w0, [[EXP]]
+// A64-NEXT:     b.ne [[TRAP:.LBB0_[0-9]+]]
 // A64:        [[TRAP]]:{{.*}}%fi.trap
 // A64:          brk #0x1
 // T2-LABEL:   verify:
@@ -70,21 +78,23 @@
 // T2-NEXT:      clz [[C]], [[C]]
 // T2-NEXT:      lsrs [[C]], [[C]], #5
 // T2-COUNT-3:   @APP
-// T2:           and r0, [[C]], #1
-// T2-NEXT:      subs [[INV:r[0-9]+]], {{r[0-9]+}}, {{r[0-9]+}}
+// T2:           subs [[INV:r[0-9]+]], {{r[0-9]+}}, {{r[0-9]+}}
 // T2-NEXT:      it ne
 // T2-NEXT:      movne [[INV]], #1
-// T2-NEXT:      cmp r0, [[INV]]
-// T2-NEXT:      {{itt?}} ne
-// T2:           bxne lr
+// T2-NEXT:      @APP
+// T2:           and r0, [[C]], #1
+// T2-NEXT:      bic.w [[EXP:r[0-9]+]], {{r[0-9]+}}, [[INV]]
+// T2-NEXT:      cmp r0, [[EXP]]
+// T2-NEXT:      {{itt?}} eq
+// T2:           bxeq lr
 // T2-NEXT:    {{.*}}%fi.trap
 // T2-NEXT:      .inst.n 0xdefe
 
-// B's check traps if equal; A's true edge traps if false, its false edge if
-// true; all three go to one trap.
+// B's check traps unless equal; A's true edge traps if false, its false edge
+// if true; all three go to one trap.
 // ASM-LABEL:  both:
-// ASM-COUNT-3:  {{(//|@)APP}}
-// ASM:          {{b.eq|beq}} [[TRAP:.LBB1_[0-9]+]]
+// ASM-COUNT-4:  {{(//|@)APP}}
+// ASM:          {{b.ne|bne}} [[TRAP:.LBB1_[0-9]+]]
 // ASM:          %fi.true
 // ASM:          {{b.ne|bne|cbz}} {{.*}}[[TRAP]]
 // ASM:          %fi.false

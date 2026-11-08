@@ -21,6 +21,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "FIHarden.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
@@ -32,6 +33,9 @@ void fiharden::Checker::trapUnless(Value *Cond, bool Expected,
   if (!Trap) {
     Trap = BasicBlock::Create(F.getContext(), "fi.trap", &F);
     IRBuilder<> B(Trap);
+    // Line 0: a call to an fi_trap with debug info needs a location.
+    if (DISubprogram *SP = F.getSubprogram())
+      B.SetCurrentDebugLocation(DILocation::get(F.getContext(), 0, 0, SP));
     Module &M = *F.getParent();
     // Skipping the call, or a handler that returns, still traps.
     if (CallHandler)

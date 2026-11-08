@@ -1,10 +1,11 @@
 //===- FIHarden.cpp - Fault-injection hardening plugin entry point --------===//
 //
 // Registers fi-harden, a module pass because function selection reads the
-// module-level llvm.global.annotations, and two inspection passes:
+// module-level llvm.global.annotations, and three inspection passes:
 // fi-harden-skips reports every instruction countermeasures must leave alone,
 // fi-harden-copies runs every compare on opaque copies of its operands, and
-// fi-harden-checks turns hand-written fi.check calls into checks.
+// fi-harden-checks turns hand-written fi.check calls into checks. Under clang
+// it also keeps marked functions out of line, before the inliner.
 //
 // opt:   -load-pass-plugin=FIHarden.so -passes='fi-harden<all;branches;compares>'
 // clang: -fpass-plugin=FIHarden.so [-mllvm -fi-harden=all,branches,compares]
@@ -85,19 +86,35 @@ Expected<FIHardenOptions> parseOptions(StringRef Params) {
   return Opts;
 }
 
+// The parameters given under clang, as -mllvm -fi-harden=a,b.
+FIHardenOptions clangOptions() {
+  auto Opts = parseOptions(join(ClangParams, ";"));
+  if (!Opts)
+    reportFatalUsageError(Opts.takeError());
+  return *Opts;
+}
+
 // Required: hardening must also run on optnone functions and at -O0.
 class FIHardenPass : public RequiredPassInfoMixin<FIHardenPass> {
   FIHardenOptions Opts;
+  bool PreLink; // the compile step of -flto, which link-time IR passes follow
 
 public:
-  explicit FIHardenPass(FIHardenOptions Opts) : Opts(Opts) {}
+  explicit FIHardenPass(FIHardenOptions Opts, bool PreLink = false)
+      : Opts(Opts), PreLink(PreLink) {}
 
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
     FunctionAnalysisManager &FAM =
         MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+    auto Selected = fiharden::selectFunctions(M, Opts.All, Opts.Allowlist);
+    // Link-time GVN rewrites a re-check's copies from the edge's equality,
+    // so the true edge compares a with itself (branches.ll shows the same
+    // with -O2 after hardening).
+    if (PreLink && !Selected.empty())
+      reportFatalUsageError("fi-harden doesn't support -flto: link-time "
+                            "optimisation would weaken the checks");
     bool Changed = false;
-    for (Function *F :
-         fiharden::selectFunctions(M, Opts.All, Opts.Allowlist)) {
+    for (Function *F : Selected) {
       ++NumFunctions;
       std::string Msg;
       raw_string_ostream OS(Msg);
@@ -128,6 +145,29 @@ public:
       OS << "trap=call;";
     Opts.print(OS, ";");
     OS << '>';
+  }
+};
+
+// Keeps the marked and allowlisted functions out of line. Hardening runs at
+// OptimizerLast, after the inliner: a marked function inlined into an
+// unmarked caller would leave its decision there, unhardened. With all, every
+// caller is hardened too, so inlining is fine.
+struct KeepOutOfLinePass : RequiredPassInfoMixin<KeepOutOfLinePass> {
+  FIHardenOptions Opts;
+
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &) {
+    if (Opts.All)
+      return PreservedAnalyses::all();
+    auto Selected = fiharden::selectFunctions(M, false, Opts.Allowlist);
+    for (Function *F : Selected) {
+      if (F->hasFnAttribute(Attribute::AlwaysInline))
+        reportFatalUsageError("fi-harden: '" + F->getName() +
+                              "' is always_inline, but a hardened function "
+                              "must stay out of line");
+      F->addFnAttr(Attribute::NoInline);
+    }
+    return Selected.empty() ? PreservedAnalyses::all()
+                            : PreservedAnalyses::none();
   }
 };
 
@@ -215,17 +255,23 @@ extern "C" LLVM_ATTRIBUTE_WEAK PassPluginLibraryInfo llvmGetPassPluginInfo() {
                     return false;
                   return true;
                 });
+            // Before the inliner, at -O0 too (always_inline).
+            PB.registerPipelineStartEPCallback(
+                [](ModulePassManager &MPM, OptimizationLevel) {
+                  MPM.addPass(KeepOutOfLinePass{{}, clangOptions()});
+                });
             // After all IR optimisation, so no IR pass can merge or fold
-            // the redundancy away. The backend still runs after this.
-            // ponytail: LTO runs this in both pre-link and post-link
-            // pipelines; decide which one hardens when LTO is supported.
+            // the redundancy away. The backend still runs after this. The
+            // ThinLTO link step's OptimizerLast is after all of it too.
+            // ponytail: -flto is refused; harden in the link step (full LTO
+            // has no OptimizerLast there) to support it.
             PB.registerOptimizerLastEPCallback(
                 [](ModulePassManager &MPM, OptimizationLevel,
-                   ThinOrFullLTOPhase) {
-                  auto Opts = parseOptions(join(ClangParams, ";"));
-                  if (!Opts)
-                    reportFatalUsageError(Opts.takeError());
-                  MPM.addPass(FIHardenPass(*Opts));
+                   ThinOrFullLTOPhase Phase) {
+                  MPM.addPass(FIHardenPass(
+                      clangOptions(),
+                      Phase == ThinOrFullLTOPhase::ThinLTOPreLink ||
+                          Phase == ThinOrFullLTOPhase::FullLTOPreLink));
                 });
           }};
 }

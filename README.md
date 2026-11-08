@@ -26,7 +26,7 @@ LLVM IR.
 
 | | What it does | What this project reuses | What it does differently |
 |---|---|---|---|
-| **GCC** `-fharden-conditional-branches`, `-fharden-compares` (GCC 12+, [`gimple-harden-conditionals.cc`](https://gcc.gnu.org/git/?p=gcc.git;a=blob;f=gcc/gimple-harden-conditionals.cc)) | Runs late, just before RTL expansion. For each conditional branch, detaches the operands *before* the branch, splits both successor edges, and in each new block evaluates the *reversed* compare and traps if it disagrees with the edge taken. For a compare whose result is a value, computes the reversed compare and traps if both results are equal. "Detaching" is an empty `asm` whose output is tied to its input, so the compiler can't tell the copy equals the original. | The two check shapes, the detach barrier, detaching before the branch (later, "the compiler may use values inferred from the compares"), and one trap block per check. | GCC skips FP compares that have no inverse once NaNs are honoured; LLVM's `CmpInst::getInversePredicate` always has one (`oeq` ↔ `une`), so nothing is skipped. GCC's barrier asm is not volatile; this project defaults to `asm sideeffect`, because OpenTitan saw a non-volatile barrier merged during register allocation. GCC hardens every function; this project hardens only the ones you mark. |
+| **GCC** `-fharden-conditional-branches`, `-fharden-compares` (GCC 12+, [`gimple-harden-conditionals.cc`](https://gcc.gnu.org/git/?p=gcc.git;a=blob;f=gcc/gimple-harden-conditionals.cc)) | Runs late, just before RTL expansion. For each conditional branch, detaches the operands *before* the branch, splits both successor edges, and in each new block evaluates the *reversed* compare and traps if it disagrees with the edge taken. For a compare whose result is a value, computes the reversed compare and traps if both results are equal. "Detaching" is an empty `asm` whose output is tied to its input, so the compiler can't tell the copy equals the original. | The two check shapes, the detach barrier, and hardening after the optimisations that would undo it. | GCC detaches the operands before the branch, because "the compiler may use values inferred from the compares"; this project copies them on each edge and runs after every IR optimisation, where nothing uses that equality any more (a test shows GVN would). GCC gives each check its own trap block; this project uses one per function, since llc merges them anyway. GCC skips FP compares that have no inverse once NaNs are honoured; LLVM's `CmpInst::getInversePredicate` always has one (`oeq` ↔ `une`), so no FP compare is skipped for lack of one. GCC's barrier asm is not volatile; this project defaults to `asm sideeffect`, because OpenTitan saw a non-volatile barrier merged during register allocation. GCC hardens every function; this project hardens only the ones you mark. |
 | **GlitchResistor** (UCSB, DSN 2021, [repo](https://github.com/ucsb-seclab/glitch_resistor)) | Legacy-PM passes at `EP_OptimizerLast`. For each conditional-branch edge, a block re-executes the condition's backward slice (the `icmp` and the loads feeding it, all made `volatile`) and calls a user-supplied `gr_glitch_detected()` on a mismatch. Also loop-guard re-checks, high-Hamming-distance constants, return-value and global-integrity protection, random delays. Opt-out per function. Validated with a ChipWhisperer-Lite on an STM32F0. | Inserting after IR optimisation; a re-check on each edge; its physical results as a comparison point. | On a mismatch GlitchResistor *calls* a handler and then continues to the protected block, so skipping that one `bl` defeats the check; this project branches to an inline trap. It doesn't make the program's own loads volatile; it re-checks from opaque register copies. Opt-in selection. New pass manager, so it works with `clang -fpass-plugin` on current LLVM (the legacy-PM extension points it uses no longer exist). |
 | **ASPIS** (Politecnico di Milano, TODAES 2024, [repo](https://github.com/HEAPLab/ASPIS)) | New-PM plugins (LLVM 21) against soft errors: data duplication (EDDI, sEDDI, FDSC) and control-flow signatures (CFCSS, RASM, RACFED). Functions and globals are selected with `annotate("to_harden"/"exclude"/...)`, read from `llvm.global.annotations`. A driver script hardens `-O0` IR with `opt`, then optimises; mismatches call `DataCorruption_Handler`/`SigMismatch_Handler`. | Annotation-based selection read from `llvm.global.annotations`; its control-flow-signature passes as the reference if this project ever adds signatures. | Attacker fault model, not single-event upsets. Hardens *after* optimisation inside a normal `clang -O2` build, instead of before it through a separate script. Targeted re-checks of security decisions instead of duplicating all data. Inline trap instead of a handler call. |
 
@@ -44,7 +44,8 @@ Clang support plus published measurements; over GlitchResistor, checks that a si
 can't disable, on the current pass manager; over ASPIS, an attacker fault model and hardening that
 runs after optimisation instead of before it.
 
-Points (2) and (3) are the goal, not yet results.
+Point (2) is checked on every build, by the assembly tests and the binary audit. Point (3) is the
+goal, not yet a result.
 
 ### Known critiques
 
@@ -87,9 +88,9 @@ docker build -f docker-repro/Dockerfile -t fihardening .
 recomputes the condition from opaque copies and traps unless it matches the edge taken (GCC's
 `-fharden-conditional-branches`). `compares` checks every compare whose result is used as a value
 (returned, stored, a `select` condition, an operand of `&&`) against its inverse, recomputed from
-opaque copies, and traps unless they differ (GCC's `-fharden-compares`). The value's users then
-read a copy of the checked result, so the backend can't recompute it unchecked. A compare used
-only by branches is left to `branches`.
+opaque copies, and traps unless the result equals the inverse negated (GCC's `-fharden-compares`).
+The value's users then read a copy of the checked result, so the backend can't recompute it
+unchecked. A compare used only by branches is left to `branches`.
 
 Mark the functions to harden:
 
@@ -101,6 +102,12 @@ __attribute__((annotate("fi_harden"))) int verify_pin(const char *pin) { ... }
 clang -O2 -fpass-plugin=build/FIHarden.so -c in.c
 opt -load-pass-plugin=build/FIHarden.so -passes='fi-harden<branches;compares>' in.ll -S -o out.ll
 ```
+
+Under clang, marked and allowlisted functions are kept out of line (`noinline`): hardening runs
+after the inliner, and a copy inlined into an unmarked caller would go unhardened. A marked
+`always_inline` function is an error. With `all`, inlining is left alone, since every caller is
+hardened too. `-flto` is refused when there's something to harden: link-time optimisation runs
+after the compile step's hardening and would weaken the checks.
 
 | Parameter (`fi-harden<...>`, or `-mllvm -fi-harden=a,b` under clang) | Effect |
 |---|---|

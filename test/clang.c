@@ -30,6 +30,15 @@
 // LIST: remark: hardening listed: branches, compares
 // BAD: invalid fi-harden parameter 'bogus'
 
+// -flto is refused: hardening must follow all IR optimisation, and link-time
+// GVN would weaken the re-checks. A file with nothing to harden still builds.
+// RUN: not clang -O2 -flto=thin -fpass-plugin=%fi_plugin -c -o /dev/null %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=LTO
+// RUN: not clang -O2 -flto -fpass-plugin=%fi_plugin -c -o /dev/null %s 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=LTO
+// RUN: clang -O2 -flto=thin -fpass-plugin=%fi_plugin -c -o /dev/null %S/../runtime/fi_trap.c
+// LTO: fi-harden doesn't support -flto: link-time optimisation would weaken the checks
+
 __attribute__((annotate("fi_harden"))) int check_pin(int a, int b) {
   return a == b;
 }
