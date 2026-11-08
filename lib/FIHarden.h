@@ -8,9 +8,12 @@
 
 namespace llvm {
 class Function;
+class IRBuilderBase;
 class Instruction;
 class Module;
 class OptimizationRemarkEmitter;
+class Type;
+class Value;
 } // namespace llvm
 
 namespace fiharden {
@@ -25,6 +28,13 @@ selectFunctions(llvm::Module &M, bool All, llvm::StringRef Allowlist);
 /// remark with the reason, so no countermeasure can skip silently.
 bool skipInstruction(llvm::Instruction &I,
                      llvm::OptimizationRemarkEmitter &ORE);
+
+/// True if opaqueCopy takes values of type T.
+bool hasOpaqueCopy(llvm::Type *T);
+
+/// A copy of V, inserted at B, that no optimisation can prove equal to V or
+/// to another copy of V. See OpaqueCopy.cpp for what it doesn't hide.
+llvm::Value *opaqueCopy(llvm::IRBuilderBase &B, llvm::Value *V);
 
 } // namespace fiharden
 

@@ -1,8 +1,9 @@
 //===- FIHarden.cpp - Fault-injection hardening plugin entry point --------===//
 //
 // Registers fi-harden, a module pass because function selection reads the
-// module-level llvm.global.annotations, and fi-harden-skips, which reports
-// every instruction countermeasures must leave alone.
+// module-level llvm.global.annotations, and two inspection passes:
+// fi-harden-skips reports every instruction countermeasures must leave alone,
+// fi-harden-copies runs every compare on opaque copies of its operands.
 //
 // opt:   -load-pass-plugin=FIHarden.so -passes='fi-harden<all;branches;compares>'
 // clang: -fpass-plugin=FIHarden.so [-mllvm -fi-harden=all,branches,compares]
@@ -13,6 +14,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
@@ -125,6 +127,21 @@ struct SkipReportPass : RequiredPassInfoMixin<SkipReportPass> {
   }
 };
 
+// Feeds every compare opaque copies of its operands, so the barrier can be
+// tested on its own: icmp eq %a, %a then survives opt -O2 and llc -O2.
+struct CopyComparesPass : RequiredPassInfoMixin<CopyComparesPass> {
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &FAM) {
+    auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(F);
+    for (Instruction &I : instructions(F))
+      if (isa<CmpInst>(I) && !fiharden::skipInstruction(I, ORE)) {
+        IRBuilder<> B(&I);
+        for (Use &Op : I.operands())
+          Op.set(fiharden::opaqueCopy(B, Op));
+      }
+    return PreservedAnalyses::none();
+  }
+};
+
 } // namespace
 
 extern "C" LLVM_ATTRIBUTE_WEAK PassPluginLibraryInfo llvmGetPassPluginInfo() {
@@ -146,9 +163,12 @@ extern "C" LLVM_ATTRIBUTE_WEAK PassPluginLibraryInfo llvmGetPassPluginInfo() {
             PB.registerPipelineParsingCallback(
                 [](StringRef Name, FunctionPassManager &FPM,
                    ArrayRef<PassBuilder::PipelineElement>) {
-                  if (Name != "fi-harden-skips")
+                  if (Name == "fi-harden-skips")
+                    FPM.addPass(SkipReportPass());
+                  else if (Name == "fi-harden-copies")
+                    FPM.addPass(CopyComparesPass());
+                  else
                     return false;
-                  FPM.addPass(SkipReportPass());
                   return true;
                 });
             // After all IR optimisation, so no IR pass can merge or fold

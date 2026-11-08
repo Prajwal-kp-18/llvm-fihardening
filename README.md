@@ -106,7 +106,9 @@ The trap handler `fi_trap` is never hardened. Add `-pass-remarks=fi-harden` (opt
 or `-Rpass=fi-harden` (clang) to see what was hardened, and `-pass-remarks-missed=fi-harden` /
 `-Rpass-missed=fi-harden` to see what was left alone and why. `-passes=fi-harden-skips` lists every
 instruction countermeasures must leave alone: atomics, volatile accesses, EH pads,
-`invoke`/`callbr`, `va_arg`, and anything with side effects or memory access.
+`invoke`/`callbr`, `va_arg`, compares on vectors or on values over 64 bits, and anything with side
+effects or memory access. `-passes=fi-harden-copies` runs every compare on opaque copies of its
+operands (`asm sideeffect "", "=r,0"`), the barrier that keeps checks from being folded away.
 
 ```
 lib/            pass plugin sources

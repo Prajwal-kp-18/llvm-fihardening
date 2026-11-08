@@ -72,8 +72,8 @@ SmallVector<Function *> fiharden::selectFunctions(Module &M, bool All,
 }
 
 // Why countermeasures may not duplicate or re-evaluate I; empty if they may.
-// The first six are absolute. A documented exception to the last two (say,
-// for ordinary loads) belongs between them and the six.
+// The first seven are absolute. A documented exception to the last two (say,
+// for ordinary loads) belongs between them and the seven.
 static StringRef skipReason(const Instruction &I) {
   if (I.isEHPad())
     return "EH pad";
@@ -87,6 +87,9 @@ static StringRef skipReason(const Instruction &I) {
     return "atomic";
   if (I.isVolatile())
     return "volatile";
+  // A re-evaluated compare takes opaque copies of its operands.
+  if (isa<CmpInst>(I) && !fiharden::hasOpaqueCopy(I.getOperand(0)->getType()))
+    return "operands have no opaque copy";
   if (I.mayHaveSideEffects())
     return "side effects";
   if (I.mayReadOrWriteMemory())
