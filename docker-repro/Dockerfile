@@ -18,6 +18,7 @@ WORKDIR /fihardening
 COPY CMakeLists.txt ./
 COPY lib/ lib/
 COPY test/ test/
+COPY runtime/ runtime/
 
 RUN cmake -S . -B build -G Ninja -DLLVM_DIR=/usr/lib/llvm-${LLVM_VERSION}/lib/cmake/llvm && \
     ninja -C build && \

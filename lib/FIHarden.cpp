@@ -3,7 +3,8 @@
 // Registers fi-harden, a module pass because function selection reads the
 // module-level llvm.global.annotations, and two inspection passes:
 // fi-harden-skips reports every instruction countermeasures must leave alone,
-// fi-harden-copies runs every compare on opaque copies of its operands.
+// fi-harden-copies runs every compare on opaque copies of its operands, and
+// fi-harden-checks turns hand-written fi.check calls into checks.
 //
 // opt:   -load-pass-plugin=FIHarden.so -passes='fi-harden<all;branches;compares>'
 // clang: -fpass-plugin=FIHarden.so [-mllvm -fi-harden=all,branches,compares]
@@ -32,13 +33,15 @@ STATISTIC(NumFunctions, "Functions selected for hardening");
 static cl::list<std::string> ClangParams(
     "fi-harden", cl::CommaSeparated,
     cl::desc("fi-harden parameters under clang -fpass-plugin, as in "
-             "fi-harden<...>: all, allowlist=<file>, branches, compares"));
+             "fi-harden<...>: all, allowlist=<file>, trap=call, branches, "
+             "compares"));
 
 namespace {
 
 struct FIHardenOptions {
   bool All = false;      // every defined function, not just the marked ones
   std::string Allowlist; // file naming more functions to harden
+  bool TrapCall = false; // a failed check calls fi_trap before trapping
   bool Branches = false;
   bool Compares = false;
 
@@ -67,12 +70,15 @@ Expected<FIHardenOptions> parseOptions(StringRef Params) {
         Opts.Branches = true;
       else if (P == "compares")
         Opts.Compares = true;
+      else if (P == "trap=call")
+        Opts.TrapCall = true;
       else if (File.consume_front("allowlist=") && !File.empty())
         Opts.Allowlist = File.str();
       else
         return createStringError(
             "invalid fi-harden parameter '" + P +
-            "'; expected all, allowlist=<file>, branches or compares");
+            "'; expected all, allowlist=<file>, trap=call, branches or "
+            "compares");
     }
   if (!Opts.Branches && !Opts.Compares)
     Opts.Branches = Opts.Compares = true;
@@ -111,6 +117,8 @@ public:
     OS << "fi-harden<" << (Opts.All ? "all;" : "");
     if (!Opts.Allowlist.empty())
       OS << "allowlist=" << Opts.Allowlist << ';';
+    if (Opts.TrapCall)
+      OS << "trap=call;";
     Opts.print(OS, ";");
     OS << '>';
   }
@@ -142,6 +150,28 @@ struct CopyComparesPass : RequiredPassInfoMixin<CopyComparesPass> {
   }
 };
 
+// Turns each call fi.check(i1 %cond, i1 %expected) into a check that traps
+// unless %cond is %expected, so the trap path can be tested on its own.
+struct HandWrittenChecksPass : RequiredPassInfoMixin<HandWrittenChecksPass> {
+  FIHardenOptions Opts;
+
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &) {
+    SmallVector<CallInst *> Marks;
+    for (Instruction &I : instructions(F))
+      if (auto *CI = dyn_cast<CallInst>(&I))
+        if (Function *Callee = CI->getCalledFunction();
+            Callee && Callee->getName() == "fi.check")
+          Marks.push_back(CI);
+    fiharden::Checker C(F, Opts.TrapCall);
+    for (CallInst *CI : Marks) {
+      C.trapUnless(CI->getArgOperand(0),
+                   cast<ConstantInt>(CI->getArgOperand(1))->isOne(), CI);
+      CI->eraseFromParent();
+    }
+    return Marks.empty() ? PreservedAnalyses::all() : PreservedAnalyses::none();
+  }
+};
+
 } // namespace
 
 extern "C" LLVM_ATTRIBUTE_WEAK PassPluginLibraryInfo llvmGetPassPluginInfo() {
@@ -167,7 +197,14 @@ extern "C" LLVM_ATTRIBUTE_WEAK PassPluginLibraryInfo llvmGetPassPluginInfo() {
                     FPM.addPass(SkipReportPass());
                   else if (Name == "fi-harden-copies")
                     FPM.addPass(CopyComparesPass());
-                  else
+                  else if (PassBuilder::checkParametrizedPassName(
+                               Name, "fi-harden-checks")) {
+                    auto Opts = PassBuilder::parsePassParameters(
+                        parseOptions, Name, "fi-harden-checks");
+                    if (!Opts)
+                      reportFatalUsageError(Opts.takeError());
+                    FPM.addPass(HandWrittenChecksPass{{}, *Opts});
+                  } else
                     return false;
                   return true;
                 });

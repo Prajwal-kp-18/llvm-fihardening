@@ -7,6 +7,7 @@
 #include "llvm/ADT/StringRef.h"
 
 namespace llvm {
+class BasicBlock;
 class Function;
 class IRBuilderBase;
 class Instruction;
@@ -35,6 +36,23 @@ bool hasOpaqueCopy(llvm::Type *T);
 /// A copy of V, inserted at B, that no optimisation can prove equal to V or
 /// to another copy of V. See OpaqueCopy.cpp for what it doesn't hide.
 llvm::Value *opaqueCopy(llvm::IRBuilderBase &B, llvm::Value *V);
+
+/// Inserts checks into one function. They share one trap block, made on first
+/// use: llvm.trap, after a call to fi_trap if CallHandler.
+class Checker {
+  llvm::Function &F;
+  bool CallHandler;
+  llvm::BasicBlock *Trap = nullptr;
+
+public:
+  Checker(llvm::Function &F, bool CallHandler)
+      : F(F), CallHandler(CallHandler) {}
+
+  /// Splits Before's block at Before: execution continues there if Cond is
+  /// Expected and traps otherwise. Cond and the opaque copies it compares must
+  /// be in Before's block (see Check.cpp).
+  void trapUnless(llvm::Value *Cond, bool Expected, llvm::Instruction *Before);
+};
 
 } // namespace fiharden
 

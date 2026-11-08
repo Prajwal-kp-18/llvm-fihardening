@@ -101,6 +101,10 @@ opt -load-pass-plugin=build/FIHarden.so -passes='fi-harden<branches;compares>' i
 | `branches`, `compares` | Countermeasures to apply. Naming none applies all of them. |
 | `all` | Harden every defined function, not only the marked ones. |
 | `allowlist=<file>` | Also harden the functions named in `<file>`: one IR name per line, mangled for C++. |
+| `trap=call` | A failed check calls `void fi_trap(void)` before it traps, to log or reset; [`runtime/fi_trap.c`](runtime/fi_trap.c) is a reference. Skipping the call or returning from it still traps. |
+
+A failed check branches to the function's trap block, `llvm.trap` (`brk` on AArch64, `udf` on Arm):
+the check path itself is a compare and a branch, with no call to skip.
 
 The trap handler `fi_trap` is never hardened. Add `-pass-remarks=fi-harden` (opt)
 or `-Rpass=fi-harden` (clang) to see what was hardened, and `-pass-remarks-missed=fi-harden` /
@@ -108,10 +112,12 @@ or `-Rpass=fi-harden` (clang) to see what was hardened, and `-pass-remarks-misse
 instruction countermeasures must leave alone: atomics, volatile accesses, EH pads,
 `invoke`/`callbr`, `va_arg`, compares on vectors or on values over 64 bits, and anything with side
 effects or memory access. `-passes=fi-harden-copies` runs every compare on opaque copies of its
-operands (`asm sideeffect "", "=r,0"`), the barrier that keeps checks from being folded away.
+operands (`asm sideeffect "", "=r,0"`), the barrier that keeps checks from being folded away, and
+`-passes=fi-harden-checks` turns each `call void @fi.check(i1 %cond, i1 %expected)` into a check.
 
 ```
 lib/            pass plugin sources
+runtime/        reference fi_trap handler for trap=call
 test/           lit + FileCheck tests
 docker-repro/   reproducible build, also used by CI
 ```
