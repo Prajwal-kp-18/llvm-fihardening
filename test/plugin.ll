@@ -3,7 +3,7 @@
 
 ; With all, one remark per defined function; declarations are never touched.
 ; RUN: opt -load-pass-plugin=%fi_plugin -passes='fi-harden<all>' -pass-remarks=fi-harden \
-; RUN:   -disable-output %s 2>&1 | FileCheck %s --implicit-check-not=remark
+; RUN:   -disable-output %s 2>&1 | FileCheck %s --implicit-check-not=hardening
 ; CHECK: remark: {{.*}}hardening f: branches, compares
 
 define i32 @f(i32 %a, i32 %b) {

@@ -17,9 +17,12 @@
 // share one. Each branch still reaches a re-check of the registers it
 // compared, but counting check blocks in the binary undercounts.
 //
-// ponytail: at -O2, a && b && c reaches here as one and of compares, so it
-// gets the weaker copied-i1 check. Recompute each compare of an and/or tree
-// if faults inside the condition (an AArch64 ccmp chain) matter.
+// At -O2, a && b && c reaches here as one and of compares, so it gets the
+// weaker copied-i1 check. Each compare in the and is countermeasure B's,
+// which checks it against its inverse.
+// ponytail: with branches but not compares, a fault inside the condition (an
+// AArch64 ccmp chain) goes unchecked. Recompute each compare of the and/or
+// tree here if branches alone must cover it.
 //
 //===----------------------------------------------------------------------===//
 

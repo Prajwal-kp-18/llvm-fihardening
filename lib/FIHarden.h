@@ -59,6 +59,11 @@ public:
 bool hardenBranches(llvm::Function &F, Checker &C,
                     llvm::OptimizationRemarkEmitter &ORE);
 
+/// Countermeasure B: checks every compare whose result F uses as a value
+/// against its inverse. Run after hardenBranches. Returns true if it changed F.
+bool hardenCompares(llvm::Function &F, Checker &C,
+                    llvm::OptimizationRemarkEmitter &ORE);
+
 } // namespace fiharden
 
 #endif

@@ -112,6 +112,8 @@ public:
       fiharden::Checker C(*F, Opts.TrapCall);
       if (Opts.Branches)
         Changed |= fiharden::hardenBranches(*F, C, ORE);
+      if (Opts.Compares)
+        Changed |= fiharden::hardenCompares(*F, C, ORE);
     }
     return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
   }
