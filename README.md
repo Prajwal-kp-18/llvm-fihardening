@@ -3,8 +3,8 @@
 Out-of-tree LLVM pass plugin that hardens security decisions in C code against fault-injection
 attacks, by re-checking conditional branches and comparisons from opaque copies of their operands.
 
-**Status: being rebuilt.** Countermeasures A (`branches`) and B (`compares`) work; next is checking
-that they survive the whole pipeline in the binary.
+**Status: being rebuilt.** Countermeasures A (`branches`) and B (`compares`) work, and an audit
+checks that every check reaches the object file on AArch64 and Thumb-2.
 
 Blog: [Building fault-injection hardening in LLVM](https://prajwal-kp.vercel.app/blog/building-fault-injection-hardening-llvm)
 
@@ -121,9 +121,22 @@ effects or memory access. `-passes=fi-harden-copies` runs every compare on opaqu
 operands (`asm sideeffect "", "=r,0"`), the barrier that keeps checks from being folded away, and
 `-passes=fi-harden-checks` turns each `call void @fi.check(i1 %cond, i1 %expected)` into a check.
 
+To check that the backend kept every check, audit the object against its remarks:
+
+```sh
+clang -O2 -fpass-plugin=build/FIHarden.so -c in.c -o in.o \
+  -fsave-optimization-record -foptimization-record-file=in.opt.yaml
+eval/audit.py in.o in.opt.yaml
+```
+
+It counts, per function, the checks still in the disassembly (`llvm-objdump` on `PATH`): both edges
+of every hardened branch, sharing tail-merged check blocks, and one per hardened compare. It fails if
+any is missing. It counts checks, not what they compare; the asm tests in `test/` pin that.
+
 ```
 lib/            pass plugin sources
 runtime/        reference fi_trap handler for trap=call
+eval/           binary audit
 test/           lit + FileCheck tests
 docker-repro/   reproducible build, also used by CI
 ```

@@ -1,4 +1,5 @@
 import os
+import sys
 
 import lit.formats
 
@@ -11,9 +12,11 @@ config.excludes = ["Inputs"]
 
 # Tools must come from the LLVM the plugin was built against: a plugin only loads into the same
 # major version, and a system clang may be a different one.
-for tool in ["opt", "llc", "clang", "FileCheck", "not", "count"]:
+for tool in ["opt", "llc", "clang", "llvm-objdump", "FileCheck", "not", "count"]:
     if not os.path.exists(os.path.join(config.llvm_tools_dir, tool)):
         lit_config.fatal(f"{tool} not found in {config.llvm_tools_dir}")
 config.environment["PATH"] = os.pathsep.join([config.llvm_tools_dir, config.environment["PATH"]])
 
 config.substitutions.append(("%fi_plugin", config.fi_plugin))
+audit = os.path.join(config.test_source_root, "..", "eval", "audit.py")
+config.substitutions.append(("%audit", f'"{sys.executable}" "{audit}"'))

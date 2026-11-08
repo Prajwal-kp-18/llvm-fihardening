@@ -6,10 +6,15 @@
 // RUN:   | FileCheck %s --implicit-check-not='remark: hardening'
 // CHECK: remark: hardening check_pin: branches, compares
 
-// It sits in the -O2 pipeline under its own name.
+// It's the last pass that changes function bodies: after it come only
+// module cleanups and remarks. An optimisation after it can undo a check:
+// branches.ll shows GVN turning a re-check into a compare of a with itself.
 // RUN: clang -O2 -fpass-plugin=%fi_plugin -mllvm -print-pipeline-passes -S -o /dev/null %s \
 // RUN:   | FileCheck %s --check-prefix=PIPELINE
-// PIPELINE: ,fi-harden<branches;compares>,
+// RUN: clang -O0 -Xclang -disable-O0-optnone -fpass-plugin=%fi_plugin -mllvm -print-pipeline-passes \
+// RUN:   -S -o /dev/null %s | FileCheck %s --check-prefix=PIPELINE-O0
+// PIPELINE: ,fi-harden<branches;compares>,globaldce,constmerge,cg-profile,rel-lookup-table-converter,lower-comment-string,function(annotation-remarks){{$}}
+// PIPELINE-O0: ,fi-harden<branches;compares>,lower-comment-string,function(annotation-remarks){{$}}
 
 // -mllvm -fi-harden takes the same parameters as fi-harden<...>.
 // RUN: clang -O2 -fpass-plugin=%fi_plugin -mllvm -fi-harden=all,branches \

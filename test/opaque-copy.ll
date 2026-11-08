@@ -22,6 +22,11 @@
 ; SKIP-NEXT: icmp left alone: operands have no opaque copy
 ; SKIP-NEXT: fcmp left alone: operands have no opaque copy
 
+; The copies are asm sideeffect, as OpenTitan's barrier is: they saw a plain
+; asm barrier merged during register allocation. Without sideeffect, LLVM 23
+; keeps every check (audit.c passes) but schedules the copies away from them,
+; so compares.c's asm checks fail. Keep it unless an asm-level test says
+; otherwise.
 ; CHECK-LABEL: @same(
 ; CHECK-NEXT:    %a.copy = call i32 asm sideeffect "", "=r,0"(i32 %a) #[[NOUNWIND:[0-9]+]]
 ; CHECK-NEXT:    %a.copy1 = call i32 asm sideeffect "", "=r,0"(i32 %a) #[[NOUNWIND]]

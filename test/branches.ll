@@ -14,6 +14,17 @@
 ; RUN:   | FileCheck %s --check-prefix=OFF
 ; OFF-NOT: fi.true
 
+; Why fi-harden runs after all IR optimisation (clang.c checks that it does):
+; GVN after it rewrites a copy's input from the edge's equality, so the true
+; edge compares a with itself and a skipped branch gets through.
+; RUN: opt -load-pass-plugin=%fi_plugin -passes='fi-harden<all;branches>,default<O2>' -S %s \
+; RUN:   | FileCheck %s --check-prefix=LATE
+; LATE-LABEL: @cmp(
+; LATE:         %a.copy = tail call i32 asm sideeffect "", "=r,0"(i32 %a)
+; LATE:       fi.true:
+; LATE-NEXT:    %b.copy = tail call i32 asm sideeffect "", "=r,0"(i32 %a)
+; LATE-NEXT:    %c.again = icmp eq i32 %a.copy, %b.copy
+
 ; trap=call reaches the handler from these checks too.
 ; RUN: opt -load-pass-plugin=%fi_plugin -passes='fi-harden<all;trap=call>' -S %s \
 ; RUN:   | FileCheck %s --check-prefix=CALL
