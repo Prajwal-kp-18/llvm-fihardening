@@ -3,7 +3,7 @@
 Out-of-tree LLVM pass plugin that hardens security decisions in C code against fault-injection
 attacks, by re-checking conditional branches and comparisons from opaque copies of their operands.
 
-**Status: being rebuilt.** No countermeasures yet.
+**Status: being rebuilt.** Countermeasure A (`branches`) works; B (`compares`) is next.
 
 Blog: [Building fault-injection hardening in LLVM](https://prajwal-kp.vercel.app/blog/building-fault-injection-hardening-llvm)
 
@@ -82,8 +82,9 @@ docker build -f docker-repro/Dockerfile -t fihardening .
 
 ## Usage
 
-The pass doesn't harden anything yet; for now it reports which functions it selected and which
-countermeasures it would apply.
+`branches` re-checks both edges of every conditional branch in a hardened function: each edge
+recomputes the condition from opaque copies and traps unless it matches the edge taken (GCC's
+`-fharden-conditional-branches`). `compares` is accepted but does nothing yet.
 
 Mark the functions to harden:
 

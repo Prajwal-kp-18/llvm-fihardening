@@ -95,6 +95,7 @@ public:
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
     FunctionAnalysisManager &FAM =
         MAM.getResult<FunctionAnalysisManagerModuleProxy>(M).getManager();
+    bool Changed = false;
     for (Function *F :
          fiharden::selectFunctions(M, Opts.All, Opts.Allowlist)) {
       ++NumFunctions;
@@ -103,12 +104,16 @@ public:
       Opts.print(OS);
       LLVM_DEBUG(dbgs() << DEBUG_TYPE << ": " << F->getName() << ": " << Msg
                         << "\n");
-      FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F).emit([&] {
+      auto &ORE = FAM.getResult<OptimizationRemarkEmitterAnalysis>(*F);
+      ORE.emit([&] {
         return OptimizationRemark(DEBUG_TYPE, "Selected", F)
                << "hardening " << F->getName() << ": " << Msg;
       });
+      fiharden::Checker C(*F, Opts.TrapCall);
+      if (Opts.Branches)
+        Changed |= fiharden::hardenBranches(*F, C, ORE);
     }
-    return PreservedAnalyses::all();
+    return Changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
   }
 
   // Prints as fi-harden<...>, so -print-pipeline-passes output can be fed

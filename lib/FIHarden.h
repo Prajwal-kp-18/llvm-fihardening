@@ -54,6 +54,11 @@ public:
   void trapUnless(llvm::Value *Cond, bool Expected, llvm::Instruction *Before);
 };
 
+/// Countermeasure A: re-checks both edges of every conditional branch in F.
+/// Returns true if it changed F.
+bool hardenBranches(llvm::Function &F, Checker &C,
+                    llvm::OptimizationRemarkEmitter &ORE);
+
 } // namespace fiharden
 
 #endif
