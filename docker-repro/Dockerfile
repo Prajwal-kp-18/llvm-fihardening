@@ -6,10 +6,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
     apt-get install -y wget gnupg lsb-release software-properties-common \
-        build-essential cmake ninja-build python3 && \
+        build-essential cmake ninja-build python3 csmith libcsmith-dev \
+        python3-unicorn python3-capstone python3-pyelftools && \
     wget -q https://apt.llvm.org/llvm.sh && \
     bash llvm.sh ${LLVM_VERSION} && \
-    apt-get install -y llvm-${LLVM_VERSION}-dev llvm-${LLVM_VERSION}-tools && \
+    apt-get install -y llvm-${LLVM_VERSION}-dev llvm-${LLVM_VERSION}-tools \
+        libclang-rt-${LLVM_VERSION}-dev && \
     rm -rf /var/lib/apt/lists/* llvm.sh
 
 ENV PATH="/usr/lib/llvm-${LLVM_VERSION}/bin:${PATH}"

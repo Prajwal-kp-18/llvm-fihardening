@@ -1,0 +1,3 @@
+# The same with Csmith's programs (CI installs it).
+REQUIRES: csmith
+RUN: %python %S/../eval/difftest.py --csmith %fi_plugin 1 5

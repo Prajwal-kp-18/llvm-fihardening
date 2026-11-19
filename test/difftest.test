@@ -1,0 +1,4 @@
+# Random programs from eval/gen.py print the same and exit the same with and
+# without fi-harden<all>, at -O0 and -O2: hardening changes no fault-free run.
+# docs/VERIFICATION.md has the larger runs, on AArch64 and Thumb-2 too.
+RUN: %python %S/../eval/difftest.py %fi_plugin 1 10

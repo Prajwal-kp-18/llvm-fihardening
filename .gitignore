@@ -25,3 +25,6 @@ __pycache__/
 # Private notes
 docs/ANALYSIS_AND_ROADMAP.md
 /task.md
+
+# Downloads and builds of eval/fissc.py, overhead.py and armory.py
+*-work/

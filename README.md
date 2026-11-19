@@ -3,8 +3,12 @@
 Out-of-tree LLVM pass plugin that hardens security decisions in C code against fault-injection
 attacks, by re-checking conditional branches and comparisons from opaque copies of their operands.
 
-**Status: being rebuilt.** Countermeasures A (`branches`) and B (`compares`) work, and an audit
-checks that every check reaches the object file on AArch64 and Thumb-2.
+**Status: being rebuilt.** Countermeasures A (`branches`) and B (`compares`) work, an audit
+checks that every check reaches the object file on AArch64 and Thumb-2, differential tests show
+hardening changes no fault-free run, and a fault simulator measures it on a Cortex-M3 against GCC's
+flags and FISSC's hand-hardened VerifyPIN. [`docs/DESIGN.md`](docs/DESIGN.md) explains how it works
+and why, [`docs/VERIFICATION.md`](docs/VERIFICATION.md) has the correctness evidence, and
+[`docs/RESULTS.md`](docs/RESULTS.md) the fault-simulation results and overhead.
 
 Blog: [Building fault-injection hardening in LLVM](https://prajwal-kp.vercel.app/blog/building-fault-injection-hardening-llvm)
 
@@ -44,8 +48,11 @@ Clang support plus published measurements; over GlitchResistor, checks that a si
 can't disable, on the current pass manager; over ASPIS, an attacker fault model and hardening that
 runs after optimisation instead of before it.
 
-Point (2) is checked on every build, by the assembly tests and the binary audit. Point (3) is the
-goal, not yet a result.
+Point (2) is checked on every build, by the assembly tests and the binary audit. Point (3) has
+first results in [`docs/RESULTS.md`](docs/RESULTS.md): on FISSC's VerifyPIN with one wrong digit,
+no single instruction skip gets the PIN accepted with A (2 do with clang alone), as with GCC's
+flags. The register bit flips that still get it accepted are data-flow faults, which A and B don't
+claim to cover.
 
 ### Known critiques
 
@@ -76,6 +83,11 @@ Run the tests (needs LLVM's `lit` and `FileCheck`, from the `llvm-23-tools` pack
 ninja -C build check-fi
 ```
 
+They include a differential test: random programs built with and without hardening must behave
+the same. Its Csmith half runs when `csmith` is on `PATH`, and the fault-simulator test when Python
+has `unicorn`, `capstone` and `pyelftools` (Ubuntu: `python3-unicorn python3-capstone
+python3-pyelftools`).
+
 Or do all of that in Docker, which installs LLVM 23 from apt.llvm.org. CI runs this same build:
 
 ```sh
@@ -84,6 +96,20 @@ docker build -f docker-repro/Dockerfile -t fihardening .
 
 ## Usage
 
+To harden a function, mark it and build with the plugin. Mark the function that makes the
+decision: a branch in an unmarked caller isn't hardened.
+
+```c
+__attribute__((annotate("fi_harden"))) int verify_pin(const char *pin) { ... }
+```
+
+```sh
+clang -O2 -fpass-plugin=build/FIHarden.so -Rpass=fi-harden -c in.c
+opt -load-pass-plugin=build/FIHarden.so -passes='fi-harden<branches;compares>' in.ll -S -o out.ll
+```
+
+`-Rpass=fi-harden` reports each hardened function, branch and compare.
+
 `branches` re-checks both edges of every conditional branch in a hardened function: each edge
 recomputes the condition from opaque copies and traps unless it matches the edge taken (GCC's
 `-fharden-conditional-branches`). `compares` checks every compare whose result is used as a value
@@ -91,17 +117,6 @@ recomputes the condition from opaque copies and traps unless it matches the edge
 opaque copies, and traps unless the result equals the inverse negated (GCC's `-fharden-compares`).
 The value's users then read a copy of the checked result, so the backend can't recompute it
 unchecked. A compare used only by branches is left to `branches`.
-
-Mark the functions to harden:
-
-```c
-__attribute__((annotate("fi_harden"))) int verify_pin(const char *pin) { ... }
-```
-
-```sh
-clang -O2 -fpass-plugin=build/FIHarden.so -c in.c
-opt -load-pass-plugin=build/FIHarden.so -passes='fi-harden<branches;compares>' in.ll -S -o out.ll
-```
 
 Under clang, marked and allowlisted functions are kept out of line (`noinline`): hardening runs
 after the inliner, and a copy inlined into an unmarked caller would go unhardened. A marked
@@ -143,9 +158,31 @@ any is missing. It counts checks, not what they compare; the asm tests in `test/
 ```
 lib/            pass plugin sources
 runtime/        reference fi_trap handler for trap=call
-eval/           binary audit
+eval/           binary audit, differential tests, fault injection, corpus runs,
+                fault simulator and its campaigns (eval/cm: bare-metal Cortex-M harness)
+docs/           design, verification and results
 test/           lit + FileCheck tests
 docker-repro/   reproducible build, also used by CI
 ```
+
+## Limits
+
+What the tests show, and no more ([`docs/DESIGN.md`](docs/DESIGN.md#what-it-doesnt-protect) has
+the details):
+
+- **One fault per run.** Each check catches one fault; two can defeat it (change the decision, then
+  skip the check). Double faults aren't measured yet.
+- **Windows that remain.** A fault before the operands are copied (a faulted load of a PIN digit)
+  feeds the same wrong value to the original and the re-check. A checked value can still be
+  corrupted on its way to another register or to memory: at `-O0`, skipping the store or load of
+  a local still gets a wrong PIN accepted. Data-flow duplication, not built yet, is the answer to
+  both.
+- **Only marked functions.** Unmarked callers, `switch`, compares on vectors or values over 64
+  bits, and IPO clones of marked functions aren't hardened; `-flto` is refused.
+- **Side channels.** Recomputing a secret-dependent compare may leak more through power or EM
+  (Cojocar et al., CARDIS 2017). Out of scope, and not measured.
+- **Physical faults** aren't measured; simulated ones on a Cortex-M3 are
+  ([`docs/RESULTS.md`](docs/RESULTS.md)). With every function of an Embench kernel hardened, A+B
+  costs 15 to 65% more code and 0 to 22% more instructions.
 
 License: [MIT](LICENSE)
