@@ -15,7 +15,7 @@ countermeasures.
   and 64 KB of RAM at `0x20000000`. No libc. `main`'s return value is the outcome.
 - **Compilers**: clang 23.1.6 with the plugin at -O2, and arm-none-eabi-gcc 13.2.1 (Ubuntu's
   `gcc-arm-none-eabi`) at -O2.
-- **Simulator**: [`eval/fisim.py`](../eval/fisim.py), on Unicorn 2.1.2 and Capstone 6.0.0. It runs
+- **Simulator**: [`eval/fisim.py`](../eval/fisim.py), on Unicorn 2.1.2 and Capstone 6.0.0a11. It runs
   the program once (the golden run), then once per single fault in the instructions `verifyPIN`
   executes, callees included:
   - **skip**: one executed instruction doesn't execute (it becomes a NOP for that one execution;

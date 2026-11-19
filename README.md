@@ -85,8 +85,8 @@ ninja -C build check-fi
 
 They include a differential test: random programs built with and without hardening must behave
 the same. Its Csmith half runs when `csmith` is on `PATH`, and the fault-simulator test when Python
-has `unicorn`, `capstone` and `pyelftools` (Ubuntu: `python3-unicorn python3-capstone
-python3-pyelftools`).
+has `unicorn`, `capstone` and `pyelftools` (`pip install unicorn==2.1.2 capstone==6.0.0a11
+pyelftools`; Ubuntu 24.04's `python3-unicorn` doesn't import on Python 3.12).
 
 Or do all of that in Docker, which installs LLVM 23 from apt.llvm.org. CI runs this same build:
 

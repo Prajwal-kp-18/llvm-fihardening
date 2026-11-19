@@ -6,13 +6,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
     apt-get install -y wget gnupg lsb-release software-properties-common \
-        build-essential cmake ninja-build python3 csmith libcsmith-dev \
-        python3-unicorn python3-capstone python3-pyelftools && \
+        build-essential cmake ninja-build python3 python3-pip csmith libcsmith-dev && \
     wget -q https://apt.llvm.org/llvm.sh && \
     bash llvm.sh ${LLVM_VERSION} && \
     apt-get install -y llvm-${LLVM_VERSION}-dev llvm-${LLVM_VERSION}-tools \
         libclang-rt-${LLVM_VERSION}-dev && \
-    rm -rf /var/lib/apt/lists/* llvm.sh
+    rm -rf /var/lib/apt/lists/* llvm.sh && \
+    # eval/fisim.py's modules, the versions docs/RESULTS.md used. Ubuntu's
+    # python3-unicorn imports distutils, which Python 3.12 dropped.
+    pip install --break-system-packages unicorn==2.1.2 capstone==6.0.0a11 pyelftools==0.33
 
 ENV PATH="/usr/lib/llvm-${LLVM_VERSION}/bin:${PATH}"
 
